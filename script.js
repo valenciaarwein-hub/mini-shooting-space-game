@@ -1,3 +1,18 @@
+// ---------- Auth storage API (from auth-store.js) ----------
+const {
+    loadUsers,
+    saveUsers,
+    hashPassword,
+    generateId,
+    isValidEmailFormat,
+    isEmailRegistered,
+    findAccount,
+    createAccount,
+    verifyCredentials,
+    updatePassword,
+    createOrGetSocialAccount
+} = window.AuthStore;
+
 // ====================================================================
 //  DARK ORBIT · 2D SPACE SHOOTER  —  script.js
 // ====================================================================
@@ -5,26 +20,9 @@
 // ====================================================================
 //  AUTH SYSTEM
 // ====================================================================
-const USERS_KEY = 'darkorbit_users';
 const SESSION_KEY = 'darkorbit_session';
 const RESET_KEY = 'darkorbit_reset';
 
-function loadUsers() {
-    try { return JSON.parse(localStorage.getItem(USERS_KEY)) || {}; }
-    catch (e) { return {}; }
-}
-function saveUsers(users) { localStorage.setItem(USERS_KEY, JSON.stringify(users)); }
-function hashPassword(pw) {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < pw.length; i++) {
-        h ^= pw.charCodeAt(i);
-        h = (h * 0x01000193) >>> 0;
-    }
-    return h.toString(16).padStart(8, '0');
-}
-function generateId() {
-    return 'u_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
-}
 function setSession(username) {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ username, ts: Date.now() }));
 }
@@ -33,18 +31,6 @@ function getSession() {
     catch (e) { return null; }
 }
 function clearSession() { localStorage.removeItem(SESSION_KEY); }
-
-function isValidEmailFormat(email) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-function isEmailRegistered(email) {
-    const users = loadUsers();
-    const lowerEmail = email.toLowerCase();
-    for (const k in users) {
-        if (users[k].email && users[k].email.toLowerCase() === lowerEmail) return true;
-    }
-    return false;
-}
 
 // ---------- UI ----------
 const authOverlay = document.getElementById('authOverlay');
@@ -321,35 +307,32 @@ toastClose.addEventListener('click', () => otpToast.classList.remove('show'));
 // ====================================================================
 signupForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    const username = document.getElementById('signupUser').value.trim();
-    const email = emailInput.value.trim();
-    const pass = document.getElementById('signupPass').value;
-    const pass2 = document.getElementById('signupPass2').value;
 
-    if (!username || !email || !pass) { showMsg('ALL FIELDS REQUIRED', 'error'); return; }
-    if (username.length < 3) { showMsg('USERNAME MUST BE 3+ CHARACTERS', 'error'); return; }
-    if (!isValidEmailFormat(email)) { showMsg('INVALID EMAIL FORMAT', 'error'); return; }
-    if (isEmailRegistered(email)) {
-        showMsg('EMAIL ALREADY REGISTERED', 'error');
-        setEmailStatus('taken', 'ALREADY REGISTERED');
+    const username = document.getElementById('signupUser').value.trim();
+    const email    = emailInput.value.trim();
+    const pass     = document.getElementById('signupPass').value;
+    const pass2    = document.getElementById('signupPass2').value;
+
+    if (pass !== pass2) {
+        showMsg('PASSWORDS DO NOT MATCH', 'error');
         return;
     }
-    if (pass.length < 6) { showMsg('PASSWORD MUST BE 6+ CHARACTERS', 'error'); return; }
-    if (pass !== pass2) { showMsg('PASSWORDS DO NOT MATCH', 'error'); return; }
 
-    const users = loadUsers();
-    const lowerUser = username.toLowerCase();
-    if (users[lowerUser]) { showMsg('USERNAME ALREADY TAKEN', 'error'); return; }
+    // delegate validation + storage to AuthStore
+    const result = createAccount({ username, email, password: pass });
 
-    users[lowerUser] = {
-        id: generateId(), username, email,
-        password: hashPassword(pass), provider: 'local',
-        createdAt: Date.now(), stats: { highScore: 0, gamesPlayed: 0 }
-    };
-    saveUsers(users);
+    if (!result.ok) {
+        showMsg(result.message.toUpperCase(), 'error');
+        if (result.code === 'EMAIL_TAKEN') setEmailStatus('taken', 'ALREADY REGISTERED');
+        return;
+    }
+
     showMsg('ACCOUNT CREATED · LOGGING IN…', 'success');
     resetEmailStatus();
-    setTimeout(() => { setSession(lowerUser); startGame(username); }, 700);
+    setTimeout(() => {
+        setSession(result.key);
+        startGame(result.account.username);
+    }, 700);
 });
 
 // ====================================================================
@@ -357,43 +340,65 @@ signupForm.addEventListener('submit', (e) => {
 // ====================================================================
 loginForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    const userInput = loginUserInput.value.trim().toLowerCase();
-    const pass = loginPassInput.value;
-    if (!userInput || !pass) { showMsg('ALL FIELDS REQUIRED', 'error'); return; }
 
-    const users = loadUsers();
-    let account = users[userInput];
-    let accountKey = userInput;
-    if (!account) {
-        for (const k in users) {
-            if (users[k].email && users[k].email.toLowerCase() === userInput) {
-                account = users[k]; accountKey = k; break;
-            }
-        }
+    const rawUser = loginUserInput.value.trim();
+    const pass    = loginPassInput.value;
+
+    if (!rawUser || !pass) {
+        showMsg('ALL FIELDS REQUIRED', 'error');
+        return;
     }
 
-    // ---- ACCOUNT NOT FOUND: show the sign-up prompt ----
-    if (!account) {
+    // ---- ask AuthStore ----
+    const result = verifyCredentials(rawUser, pass);
+
+    // ❌ account doesn't exist
+    if (!result.ok && result.code === 'NOT_FOUND') {
         showMsg('ACCOUNT NOT FOUND', 'error');
-        showNotFoundPrompt(
-            `The account "${loginUserInput.value.trim()}" is not yet registered. Please sign up first to create an account.`
+        hideNotFoundPrompt();
+        showLoginPrompt(
+            'error',
+            'ACCOUNT DOES NOT EXIST',
+            `The account "${rawUser}" is not registered in DARK ORBIT. Please sign up first to create an account.`,
+            null
         );
+        ensurePromptCloseButton();
         return;
     }
 
-    if (account.provider !== 'local') {
-        showMsg('USE ' + account.provider.toUpperCase() + ' TO SIGN IN', 'error');
+    // ❌ social account
+    if (!result.ok && result.code === 'SOCIAL_PROVIDER') {
+        showMsg('USE ' + result.provider.toUpperCase() + ' TO SIGN IN', 'error');
         return;
     }
-    if (account.password !== hashPassword(pass)) {
+
+    // ❌ wrong password
+    if (!result.ok && result.code === 'WRONG_PASSWORD') {
         showMsg('INCORRECT PASSWORD', 'error');
+        showLoginPrompt(
+            'error',
+            'INCORRECT PASSWORD',
+            'The password you entered is incorrect. Please try again.',
+            null
+        );
+        ensurePromptCloseButton();
         return;
     }
 
+    // ✅ ACCESS GRANTED
     showMsg('ACCESS GRANTED', 'success');
     hideNotFoundPrompt();
-    const displayName = account.username;
-    setTimeout(() => { setSession(accountKey); startGame(displayName); }, 500);
+    setSession(result.key);
+
+    const displayName = result.account.username;
+
+    showLoginPrompt(
+        'success',
+        'ACCESS GRANTED',
+        `Welcome back, commander ${displayName}. Launching Dark Orbit...`,
+        () => startGame(displayName)
+    );
+    lpAutoTimer = setTimeout(hideLoginPrompt, 1800);
 });
 
 // ====================================================================
@@ -410,33 +415,30 @@ document.getElementById('forgotLink').addEventListener('click', () => {
 
 forgotForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    const input = document.getElementById('forgotUser').value.trim().toLowerCase();
-    if (!input) { showMsg('ENTER USERNAME OR EMAIL', 'error'); return; }
+    const input = document.getElementById('forgotUser').value.trim();
 
-    const users = loadUsers();
-    let accountKey = null, account = null;
-    if (users[input]) { accountKey = input; account = users[input]; }
-    else {
-        for (const k in users) {
-            if (users[k].email && users[k].email.toLowerCase() === input) { accountKey = k; account = users[k]; break; }
-        }
-    }
-
-    if (!account) {
+    const found = findAccount(input);
+    if (!found) {
         showMsg('ACCOUNT NOT FOUND · PLEASE SIGN UP', 'error');
-        showNotFoundPrompt(
-            `The account "${input}" is not registered. Please sign up first to create an account.`
+        showLoginPrompt(
+            'error',
+            'ACCOUNT DOES NOT EXIST',
+            `The account "${input}" is not registered. Please sign up first.`,
+            null
         );
+        ensurePromptCloseButton();
         return;
     }
-    if (account.provider !== 'local') {
+
+    const { key, account } = found;
+    if (account.provider && account.provider !== 'local') {
         showMsg('THIS ACCOUNT USES ' + account.provider.toUpperCase() + ' · NO PASSWORD TO RESET', 'error');
         return;
     }
 
     const code = String(Math.floor(100000 + Math.random() * 900000));
     resetCtx = {
-        key: accountKey, code,
+        key, code,
         expires: Date.now() + 5 * 60 * 1000,
         displayName: account.username,
         email: account.email
@@ -545,17 +547,20 @@ otpForm.addEventListener('submit', (e) => {
 resetForm.addEventListener('submit', (e) => {
     e.preventDefault();
     if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); showForm('forgot'); return; }
-    const pass = document.getElementById('resetPass').value;
+
+    const pass  = document.getElementById('resetPass').value;
     const pass2 = document.getElementById('resetPass2').value;
-    if (pass.length < 6) { showMsg('PASSWORD MUST BE 6+ CHARACTERS', 'error'); return; }
-    if (pass !== pass2) { showMsg('PASSWORDS DO NOT MATCH', 'error'); return; }
 
-    const users = loadUsers();
-    const account = users[resetCtx.key];
-    if (!account) { showMsg('ACCOUNT NO LONGER EXISTS', 'error'); showForm('login'); return; }
+    if (pass.length < 6)   { showMsg('PASSWORD MUST BE 6+ CHARACTERS', 'error'); return; }
+    if (pass !== pass2)    { showMsg('PASSWORDS DO NOT MATCH', 'error'); return; }
 
-    account.password = hashPassword(pass);
-    saveUsers(users);
+    const result = updatePassword(resetCtx.key, pass);
+    if (!result.ok) {
+        showMsg('ACCOUNT NO LONGER EXISTS', 'error');
+        showForm('login');
+        return;
+    }
+
     clearResetState();
     showMsg('PASSWORD UPDATED · PLEASE LOGIN', 'success');
     setTimeout(() => showForm('login'), 800);
@@ -588,32 +593,15 @@ function clearResetState() {
 function socialLogin(provider) {
     const providerName = provider === 'google' ? 'Google' : 'Facebook';
     const fakeEmail = `${provider}_pilot_${Math.floor(Math.random()*9000+1000)}@${provider}.com`;
-    const fakeName = `${providerName} Pilot`;
-    const users = loadUsers();
+    const fakeName  = `${providerName} Pilot`;
 
-    let existingKey = null;
-    for (const k in users) {
-        if (users[k].email === fakeEmail) { existingKey = k; break; }
-    }
+    const result = createOrGetSocialAccount(provider, fakeEmail, fakeName);
 
-    let displayName, sessionKey;
-    if (existingKey) {
-        displayName = users[existingKey].username;
-        sessionKey = existingKey;
-        showMsg(`WELCOME BACK, ${displayName.toUpperCase()}`, 'success');
-    } else {
-        const key = `${provider}_${Date.now().toString(36)}`;
-        users[key] = {
-            id: generateId(), username: fakeName, email: fakeEmail,
-            password: null, provider, createdAt: Date.now(),
-            stats: { highScore: 0, gamesPlayed: 0 }
-        };
-        saveUsers(users);
-        displayName = fakeName;
-        sessionKey = key;
-        showMsg(`SIGNED IN WITH ${providerName.toUpperCase()}`, 'success');
-    }
-    setTimeout(() => { setSession(sessionKey); startGame(displayName); }, 700);
+    showMsg(`SIGNED IN WITH ${providerName.toUpperCase()}`, 'success');
+    setTimeout(() => {
+        setSession(result.key);
+        startGame(result.account.username);
+    }, 700);
 }
 document.getElementById('googleBtn').addEventListener('click', () => socialLogin('google'));
 document.getElementById('facebookBtn').addEventListener('click', () => socialLogin('facebook'));
