@@ -119,6 +119,65 @@
         .auth-form.active {
             display: flex;
         }
+
+        /* ================= WARP TRANSITION ================= */
+        .form-stage {
+            position: relative;
+            transition: height 0.42s cubic-bezier(0.22, 0.9, 0.28, 1);
+        }
+        .form-stage.warping {
+            overflow: hidden;
+        }
+
+        /* the outgoing form leaves the flow so the stage can resize freely */
+        .auth-form.warp-out {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            pointer-events: none;
+            animation: warpOut 0.34s cubic-bezier(0.55, 0, 0.85, 0.35) forwards;
+        }
+        /* the incoming form arrives out of hyperspace */
+        .auth-form.warp-in {
+            display: flex;
+            animation: warpIn 0.46s cubic-bezier(0.16, 0.9, 0.3, 1) both;
+        }
+
+        @keyframes warpOut {
+            0% {
+                opacity: 1;
+                filter: blur(0px);
+                transform: perspective(700px) translateX(0) translateZ(0) scale(1);
+            }
+            100% {
+                opacity: 0;
+                filter: blur(7px);
+                transform: perspective(700px) translateX(calc(var(--warp-dir, 1) * -70px)) translateZ(-160px) scale(0.9);
+            }
+        }
+        @keyframes warpIn {
+            0% {
+                opacity: 0;
+                filter: blur(7px);
+                transform: perspective(700px) translateX(calc(var(--warp-dir, 1) * 70px)) translateZ(-160px) scale(0.9);
+            }
+            55% { opacity: 1; }
+            100% {
+                opacity: 1;
+                filter: blur(0px);
+                transform: perspective(700px) translateX(0) translateZ(0) scale(1);
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .form-stage { transition: none; }
+            .auth-form.warp-out,
+            .auth-form.warp-in { animation-duration: 0.01s; }
+        }
+        /* =================================================== */
+
         .field {
             display: flex;
             flex-direction: column;
@@ -566,152 +625,158 @@
                 <button type="button" class="auth-tab" data-tab="signup">SIGN UP</button>
             </div>
 
-            <!-- LOGIN FORM -->
-            <form class="auth-form active" id="loginForm">
-                <div class="field">
-                    <label>USERNAME OR EMAIL</label>
-                    <div class="input-wrap">
-                        <input type="text" id="loginUser" placeholder="commander" autocomplete="username" required>
-                    </div>
-                </div>
-                <div class="field">
-                    <label>PASSWORD</label>
-                    <div class="input-wrap">
-                        <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" required>
-                        <button type="button" class="eye-toggle" data-target="loginPass" aria-label="Show password">
-                            <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
-                            </svg>
-                            <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-                <button type="submit" class="btn-primary">ACCESS GRANTED</button>
+            <!-- ===== forms live inside the warp stage ===== -->
+            <div class="form-stage" id="formStage">
 
-                <!-- ACCOUNT NOT FOUND PROMPT -->
-                <div class="notfound-prompt" id="notFoundPrompt">
-                    <div class="nf-title">⚠ ACCOUNT NOT FOUND</div>
-                    <div class="nf-text" id="notFoundText">This account is not yet registered. Please sign up first to create an account.</div>
-                    <button type="button" class="nf-action" id="gotoSignupBtn">SIGN UP NOW →</button>
-                </div>
+                <!-- LOGIN FORM -->
+                <form class="auth-form active" id="loginForm">
+                    <div class="field">
+                        <label>USERNAME OR EMAIL</label>
+                        <div class="input-wrap">
+                            <input type="text" id="loginUser" placeholder="commander" autocomplete="username" required>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>PASSWORD</label>
+                        <div class="input-wrap">
+                            <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" required>
+                            <button type="button" class="eye-toggle" data-target="loginPass" aria-label="Show password">
+                                <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                                <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">ACCESS GRANTED</button>
 
-                <button type="button" class="btn-ghost" id="forgotLink">FORGOT PASSWORD?</button>
-            </form>
+                    <!-- ACCOUNT NOT FOUND PROMPT -->
+                    <div class="notfound-prompt" id="notFoundPrompt">
+                        <div class="nf-title">⚠ ACCOUNT NOT FOUND</div>
+                        <div class="nf-text" id="notFoundText">This account is not yet registered. Please sign up first to create an account.</div>
+                        <button type="button" class="nf-action" id="gotoSignupBtn">SIGN UP NOW →</button>
+                    </div>
 
-            <!-- SIGNUP FORM -->
-            <form class="auth-form" id="signupForm">
-                <div class="field">
-                    <label>USERNAME</label>
-                    <div class="input-wrap">
-                        <input type="text" id="signupUser" placeholder="pilot_name" autocomplete="username" required>
-                    </div>
-                </div>
-                <div class="field">
-                    <label>
-                        <span>EMAIL</span>
-                        <span class="field-status" id="emailStatus"></span>
-                    </label>
-                    <div class="input-wrap">
-                        <input type="email" id="signupEmail" placeholder="pilot@gmail.com" autocomplete="email" required>
-                        <span class="email-icon" id="emailIcon"></span>
-                    </div>
-                </div>
-                <div class="field">
-                    <label>PASSWORD</label>
-                    <div class="input-wrap">
-                        <input type="password" id="signupPass" placeholder="••••••••" autocomplete="new-password" required>
-                        <button type="button" class="eye-toggle" data-target="signupPass" aria-label="Show password">
-                            <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
-                            </svg>
-                            <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-                <div class="field">
-                    <label>CONFIRM PASSWORD</label>
-                    <div class="input-wrap">
-                        <input type="password" id="signupPass2" placeholder="••••••••" autocomplete="new-password" required>
-                        <button type="button" class="eye-toggle" data-target="signupPass2" aria-label="Show password">
-                            <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
-                            </svg>
-                            <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-                <button type="submit" class="btn-primary" id="signupBtn">CREATE ACCOUNT</button>
-            </form>
+                    <button type="button" class="btn-ghost" id="forgotLink">FORGOT PASSWORD?</button>
+                </form>
 
-            <!-- FORGOT PASSWORD FORM -->
-            <form class="auth-form" id="forgotForm">
-                <div class="step-hint">Enter your username or email. We'll send a <strong>6-digit OTP</strong> to reset your password.</div>
-                <div class="field">
-                    <label>USERNAME OR EMAIL</label>
-                    <div class="input-wrap">
-                        <input type="text" id="forgotUser" placeholder="commander or pilot@gmail.com" autocomplete="username" required>
+                <!-- SIGNUP FORM -->
+                <form class="auth-form" id="signupForm">
+                    <div class="field">
+                        <label>USERNAME</label>
+                        <div class="input-wrap">
+                            <input type="text" id="signupUser" placeholder="pilot_name" autocomplete="username" required>
+                        </div>
                     </div>
-                </div>
-                <button type="submit" class="btn-primary">SEND OTP</button>
-                <button type="button" class="btn-ghost" data-back>← BACK TO LOGIN</button>
-            </form>
+                    <div class="field">
+                        <label>
+                            <span>EMAIL</span>
+                            <span class="field-status" id="emailStatus"></span>
+                        </label>
+                        <div class="input-wrap">
+                            <input type="email" id="signupEmail" placeholder="pilot@gmail.com" autocomplete="email" required>
+                            <span class="email-icon" id="emailIcon"></span>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>PASSWORD</label>
+                        <div class="input-wrap">
+                            <input type="password" id="signupPass" placeholder="••••••••" autocomplete="new-password" required>
+                            <button type="button" class="eye-toggle" data-target="signupPass" aria-label="Show password">
+                                <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                                <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>CONFIRM PASSWORD</label>
+                        <div class="input-wrap">
+                            <input type="password" id="signupPass2" placeholder="••••••••" autocomplete="new-password" required>
+                            <button type="button" class="eye-toggle" data-target="signupPass2" aria-label="Show password">
+                                <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                                <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary" id="signupBtn">CREATE ACCOUNT</button>
+                </form>
 
-            <!-- OTP VERIFY FORM -->
-            <form class="auth-form" id="otpForm">
-                <div class="step-hint">Enter the 6-digit code sent to <strong id="otpTarget">your account</strong></div>
-                <div class="otp-wrap">
-                    <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="0" autocomplete="one-time-code">
-                    <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="1">
-                    <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="2">
-                    <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="3">
-                    <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="4">
-                    <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="5">
-                </div>
-                <button type="submit" class="btn-primary">VERIFY CODE</button>
-                <button type="button" class="btn-ghost" id="resendOtp">RESEND OTP (<span id="resendCount">30</span>s)</button>
-                <button type="button" class="btn-ghost" data-back>← BACK TO LOGIN</button>
-            </form>
+                <!-- FORGOT PASSWORD FORM -->
+                <form class="auth-form" id="forgotForm">
+                    <div class="step-hint">Enter your username or email. We'll send a <strong>6-digit OTP</strong> to reset your password.</div>
+                    <div class="field">
+                        <label>USERNAME OR EMAIL</label>
+                        <div class="input-wrap">
+                            <input type="text" id="forgotUser" placeholder="commander or pilot@gmail.com" autocomplete="username" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">SEND OTP</button>
+                    <button type="button" class="btn-ghost" data-back>← BACK TO LOGIN</button>
+                </form>
 
-            <!-- NEW PASSWORD FORM -->
-            <form class="auth-form" id="resetForm">
-                <div class="step-hint">✅ Identity verified. Set a <strong>new password</strong> for your account.</div>
-                <div class="field">
-                    <label>NEW PASSWORD</label>
-                    <div class="input-wrap">
-                        <input type="password" id="resetPass" placeholder="••••••••" autocomplete="new-password" required>
-                        <button type="button" class="eye-toggle" data-target="resetPass" aria-label="Show password">
-                            <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
-                            </svg>
-                            <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
-                            </svg>
-                        </button>
+                <!-- OTP VERIFY FORM -->
+                <form class="auth-form" id="otpForm">
+                    <div class="step-hint">Enter the 6-digit code sent to <strong id="otpTarget">your account</strong></div>
+                    <div class="otp-wrap">
+                        <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="0" autocomplete="one-time-code">
+                        <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="1">
+                        <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="2">
+                        <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="3">
+                        <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="4">
+                        <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-otp="5">
                     </div>
-                </div>
-                <div class="field">
-                    <label>CONFIRM NEW PASSWORD</label>
-                    <div class="input-wrap">
-                        <input type="password" id="resetPass2" placeholder="••••••••" autocomplete="new-password" required>
-                        <button type="button" class="eye-toggle" data-target="resetPass2" aria-label="Show password">
-                            <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
-                            </svg>
-                            <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
-                            </svg>
-                        </button>
+                    <button type="submit" class="btn-primary">VERIFY CODE</button>
+                    <button type="button" class="btn-ghost" id="resendOtp">RESEND OTP (<span id="resendCount">30</span>s)</button>
+                    <button type="button" class="btn-ghost" data-back>← BACK TO LOGIN</button>
+                </form>
+
+                <!-- NEW PASSWORD FORM -->
+                <form class="auth-form" id="resetForm">
+                    <div class="step-hint">✅ Identity verified. Set a <strong>new password</strong> for your account.</div>
+                    <div class="field">
+                        <label>NEW PASSWORD</label>
+                        <div class="input-wrap">
+                            <input type="password" id="resetPass" placeholder="••••••••" autocomplete="new-password" required>
+                            <button type="button" class="eye-toggle" data-target="resetPass" aria-label="Show password">
+                                <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                                <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
-                </div>
-                <button type="submit" class="btn-primary">UPDATE PASSWORD</button>
-                <button type="button" class="btn-ghost" data-back>← BACK TO LOGIN</button>
-            </form>
+                    <div class="field">
+                        <label>CONFIRM NEW PASSWORD</label>
+                        <div class="input-wrap">
+                            <input type="password" id="resetPass2" placeholder="••••••••" autocomplete="new-password" required>
+                            <button type="button" class="eye-toggle" data-target="resetPass2" aria-label="Show password">
+                                <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                                <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">UPDATE PASSWORD</button>
+                    <button type="button" class="btn-ghost" data-back>← BACK TO LOGIN</button>
+                </form>
+
+            </div>
+            <!-- ===== end form stage ===== -->
 
             <div id="socialBlock">
                 <div class="divider">OR CONTINUE WITH</div>
@@ -857,20 +922,27 @@
                 document.getElementById('signupUser').value = typed;
             }
             setTimeout(() => {
-                (typed && isValidEmailFormat(typed)
-                    ? document.getElementById('signupUser')
-                    : document.getElementById('signupUser')
-                ).focus();
+                document.getElementById('signupUser').focus();
             }, 50);
         });
 
-        // ---------- Form switching ----------
-        function showForm(name) {
-            [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(f => f.classList.remove('active'));
-            ({ login: loginForm, signup: signupForm, forgot: forgotForm, otp: otpForm, reset: resetForm })[name].classList.add('active');
+        // ====================================================================
+        //  FORM SWITCHING  ·  HYPERSPACE WARP TRANSITION
+        // ====================================================================
+        const formStage = document.getElementById('formStage');
 
-            authTabs.style.display = (name === 'login' || name === 'signup') ? 'flex' : 'none';
-            socialBlock.style.display = (name === 'login' || name === 'signup') ? 'block' : 'none';
+        const FORM_MAP   = { login: loginForm, signup: signupForm, forgot: forgotForm, otp: otpForm, reset: resetForm };
+        const FORM_ORDER = { login: 0, signup: 1, forgot: 2, otp: 3, reset: 4 };
+
+        let currentFormName = 'login';
+        let warpToken = 0;
+        let warpCleanupTimer = null;
+
+        // Chrome = everything that is NOT part of the warp stage
+        function setAuthChrome(name) {
+            const showTabs = (name === 'login' || name === 'signup');
+            authTabs.style.display    = showTabs ? 'flex' : 'none';
+            socialBlock.style.display = showTabs ? 'block' : 'none';
 
             tabs.forEach(t => {
                 const isActive = t.dataset.tab === name;
@@ -879,9 +951,64 @@
             });
 
             if (name !== 'signup') clearEmailFeedback();
-            if (name !== 'login') hideNotFoundPrompt();
+            if (name !== 'login')  hideNotFoundPrompt();
 
             showMsg('');
+        }
+
+        function showForm(name) {
+            const nextForm = FORM_MAP[name];
+            if (!nextForm) return;
+
+            const prevForm = formStage.querySelector('.auth-form.active');
+
+            // ---- nothing to warp to: just sync the chrome ----
+            if (prevForm === nextForm) {
+                currentFormName = name;
+                setAuthChrome(name);
+                return;
+            }
+
+            // ---- direction: forward = new form slides in from the right ----
+            const dir = (FORM_ORDER[name] >= FORM_ORDER[currentFormName]) ? 1 : -1;
+
+            // 1. Freeze the current height so the card can morph smoothly
+            formStage.style.height = prevForm.offsetHeight + 'px';
+            formStage.classList.add('warping');
+
+            // 2. Launch the old form into hyperspace
+            prevForm.classList.remove('warp-in');
+            prevForm.classList.remove('active');
+            prevForm.classList.add('warp-out');
+            prevForm.style.setProperty('--warp-dir', dir);
+
+            // 3. Drop the new form out of warp
+            nextForm.classList.remove('warp-out', 'warp-in');
+            nextForm.classList.add('active', 'warp-in');
+            nextForm.style.setProperty('--warp-dir', dir);
+
+            // 4. Animate the stage height towards the new form
+            const targetHeight = nextForm.offsetHeight;
+            void formStage.offsetHeight;                        // commit the start height
+            formStage.style.height = targetHeight + 'px';
+
+            setAuthChrome(name);
+            currentFormName = name;
+
+            // 5. Clean up once the jump is complete
+            const token = ++warpToken;
+            clearTimeout(warpCleanupTimer);
+            warpCleanupTimer = setTimeout(() => {
+                if (token !== warpToken) return;                // a newer warp took over
+                formStage.querySelectorAll('.warp-out').forEach(f => {
+                    f.classList.remove('warp-out');
+                    f.style.removeProperty('--warp-dir');
+                });
+                nextForm.classList.remove('warp-in');
+                nextForm.style.removeProperty('--warp-dir');
+                formStage.classList.remove('warping');
+                formStage.style.height = '';                    // back to natural height
+            }, 520);
         }
 
         tabs.forEach(tab => {
@@ -1132,10 +1259,10 @@
             localStorage.setItem(RESET_KEY, JSON.stringify(resetCtx));
 
             document.getElementById('otpTarget').textContent = account.email;
-            showMsg('OTP SENT TO ' + account.email, 'success');
             showOtpToast(code);
             startResendCountdown();
             showForm('otp');
+            showMsg('OTP SENT TO ' + account.email, 'success');
             clearOtpInputs();
             document.querySelector('[data-otp="0"]').focus();
         });
