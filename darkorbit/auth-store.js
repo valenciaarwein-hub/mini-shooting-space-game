@@ -1,15 +1,18 @@
 // ====================================================================
 // DARK ORBIT · AUTH SYSTEM
-// Tab clicks between login and signup trigger the warp transition
-// exposed by script.js. Everything else is unchanged.
+// Handles: signup, login, social login, forgot password, OTP, reset,
+// logout, session restore, and starting the game.
+// Adds a smooth morph transition between login and signup.
 // ====================================================================
 (function () {
   'use strict';
 
+  // ---------- storage keys ----------
   const USERS_KEY   = 'darkorbit_users';
   const SESSION_KEY = 'darkorbit_session';
   const RESET_KEY   = 'darkorbit_reset';
 
+  // ---------- storage helpers ----------
   function loadUsers() {
     try { return JSON.parse(localStorage.getItem(USERS_KEY)) || {}; }
     catch (e) { return {}; }
@@ -77,6 +80,151 @@
   const notFoundText    = document.getElementById('notFoundText');
   const gotoSignupBtn   = document.getElementById('gotoSignupBtn');
 
+  // ---------- morph helpers ----------
+  const authCard = document.querySelector('.auth-card');
+  let indicator = null;
+  let morphing = false;
+
+  function ensureIndicator() {
+    if (indicator || !authTabs) return;
+    indicator = document.createElement('div');
+    indicator.className = 'auth-tab-indicator';
+    authTabs.appendChild(indicator);
+  }
+
+  function placeIndicator(name) {
+    if (!indicator) return;
+    const idx = name === 'signup' ? 1 : 0;
+    indicator.style.transform = 'translateX(' + (idx * 100) + '%)';
+  }
+
+  // Measure a form's natural height without permanently changing the card
+  function measureForm(form) {
+    if (!form) return 0;
+    // Temporarily make it relative + visible to measure, then restore
+    const wasActive = form.classList.contains('active');
+    if (!wasActive) {
+      form.style.position = 'relative';
+      form.style.opacity = '1';
+      form.style.transform = 'none';
+      form.style.left = '0';
+      form.style.right = '0';
+      form.style.top = '0';
+    }
+    const h = form.scrollHeight;
+    if (!wasActive) {
+      form.style.position = '';
+      form.style.opacity = '';
+      form.style.transform = '';
+      form.style.left = '';
+      form.style.right = '';
+      form.style.top = '';
+    }
+    return h;
+  }
+
+  // The actual smooth swap
+  function morphToForm(targetName, instant) {
+    const targetForm = { login: loginForm, signup: signupForm, forgot: forgotForm,
+                         otp: otpForm, reset: resetForm }[targetName];
+    if (!targetForm) return;
+
+    const currentActive = document.querySelector('.auth-form.active');
+    const currentName = currentActive ? currentActive.id.replace('Form', '').toLowerCase() : '';
+
+    // Always update tabs, header visibility, and social block immediately
+    if (authTabs)    authTabs.style.display    = (targetName === 'login' || targetName === 'signup') ? 'flex'  : 'none';
+    if (socialBlock) socialBlock.style.display = (targetName === 'login' || targetName === 'signup') ? 'block' : 'none';
+
+    tabs.forEach(function (t) {
+      const isActive = t.dataset.tab === targetName;
+      t.classList.toggle('active', isActive);
+      t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    placeIndicator(targetName);
+
+    if (targetName !== 'signup') clearEmailFeedback();
+    if (targetName !== 'login')  hideNotFoundPrompt();
+    showMsg('');
+
+    // If not a login↔signup switch, or reduced motion, or no card → instant
+    const reducedMotion = window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isTopLevelSwitch =
+      (currentName === 'login' || currentName === 'signup') &&
+      (targetName  === 'login' || targetName  === 'signup') &&
+      currentName !== targetName;
+
+    if (!authCard || instant || reducedMotion || !isTopLevelSwitch) {
+      [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
+        if (f) f.classList.remove('active');
+      });
+      targetForm.classList.add('active');
+      // Clear any inline height set by previous morphs
+      authCard.style.height = '';
+      return;
+    }
+
+    // ---- Morph: animate card height, crossfade forms ----
+    if (morphing) {
+      // If a morph is already running, finish it instantly and restart
+      morphing = false;
+    }
+
+    const startH = authCard.getBoundingClientRect().height;
+    const endH   = (function () {
+      // Measure target form height while it's detached from .active
+      const clone = targetForm.cloneNode(true);
+      clone.style.position = 'relative';
+      clone.style.opacity = '1';
+      clone.style.transform = 'none';
+      clone.style.left = '0';
+      clone.style.right = '0';
+      clone.style.top = '0';
+      clone.style.visibility = 'hidden';
+      clone.style.pointerEvents = 'none';
+      authCard.appendChild(clone);
+      const h = clone.scrollHeight;
+      authCard.removeChild(clone);
+      return h;
+    })();
+
+    morphing = true;
+    authCard.style.height = startH + 'px';
+
+    // Step 1: fade out current, shrink slightly
+    if (currentActive) currentActive.classList.remove('active');
+
+    // Step 2: on next frame, animate height toward endH
+    requestAnimationFrame(function () {
+      authCard.style.height = endH + 'px';
+    });
+
+    // Step 3: after half the transition, activate target so it fades in
+    setTimeout(function () {
+      targetForm.classList.add('active');
+    }, 160);
+
+    // Step 4: once transition ends, clear inline height so the card can grow if content changes
+    const done = function () {
+      if (!morphing) return;
+      morphing = false;
+      authCard.style.height = '';
+      authCard.removeEventListener('transitionend', onEnd);
+    };
+    const onEnd = function (e) {
+      if (e.propertyName === 'height') done();
+    };
+    authCard.addEventListener('transitionend', onEnd);
+    // Fallback in case transitionend never fires (e.g. zero-diff height)
+    setTimeout(done, 500);
+  }
+
+  // Existing showForm(name) → becomes a thin wrapper that calls morphToForm
+  function showForm(name) {
+    morphToForm(name, false);
+  }
+
   // ---------- account-not-found prompt ----------
   function showNotFoundPrompt(message) {
     if (!notFoundPrompt || !notFoundText) return;
@@ -87,13 +235,35 @@
     notFoundPrompt.classList.add('show');
     if (loginUserInput) loginUserInput.classList.add('input-error');
     if (loginPassInput) loginPassInput.classList.add('input-error');
+    // Grow the card to fit the prompt
+    requestAnimationFrame(function () { refreshCardHeight(); });
   }
   function hideNotFoundPrompt() {
     if (!notFoundPrompt) return;
     notFoundPrompt.classList.remove('show');
     if (loginUserInput) loginUserInput.classList.remove('input-error');
     if (loginPassInput) loginPassInput.classList.remove('input-error');
+    requestAnimationFrame(function () { refreshCardHeight(); });
   }
+
+  // Recompute the card's height to fit whichever form is active
+  function refreshCardHeight() {
+    if (!authCard) return;
+    const active = document.querySelector('.auth-form.active');
+    if (!active) return;
+    // Temporarily drop the fixed height so the form can grow naturally
+    authCard.style.height = '';
+    const targetH = active.scrollHeight;
+    if (targetH > 0 && Math.abs(authCard.getBoundingClientRect().height - targetH) > 2) {
+      // Animate to the new height
+      authCard.style.height = authCard.getBoundingClientRect().height + 'px';
+      requestAnimationFrame(function () {
+        authCard.style.height = targetH + 'px';
+      });
+      setTimeout(function () { authCard.style.height = ''; }, 450);
+    }
+  }
+
   if (loginUserInput) loginUserInput.addEventListener('input', hideNotFoundPrompt);
   if (loginPassInput) loginPassInput.addEventListener('input', hideNotFoundPrompt);
 
@@ -109,56 +279,17 @@
         if (el) el.value = typed;
       }
       const focusEl = document.getElementById('signupUser');
-      if (focusEl) setTimeout(function () { focusEl.focus(); }, 50);
+      if (focusEl) setTimeout(function () { focusEl.focus(); }, 450);
     });
   }
 
-  // ---------- form switching ----------
-  function showForm(name) {
-    [loginForm, signupForm, forgotForm, otpForm, resetForm]
-      .forEach(function (f) { if (f) f.classList.remove('active'); });
+  // ---------- tab clicks ----------
+  ensureIndicator();
+  placeIndicator('login');
 
-    const targetForm = { login: loginForm, signup: signupForm, forgot: forgotForm,
-                         otp: otpForm, reset: resetForm }[name];
-    if (targetForm) targetForm.classList.add('active');
-
-    if (authTabs) {
-      authTabs.style.display = (name === 'login' || name === 'signup') ? 'flex' : 'none';
-    }
-    if (socialBlock) {
-      socialBlock.style.display = (name === 'login' || name === 'signup') ? 'block' : 'none';
-    }
-
-    tabs.forEach(function (t) {
-      const isActive = t.dataset.tab === name;
-      t.classList.toggle('active', isActive);
-      t.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    });
-
-    if (name !== 'signup') clearEmailFeedback();
-    if (name !== 'login')  hideNotFoundPrompt();
-    showMsg('');
-  }
-
-  // ---------- tab clicks: warp between login <-> signup ----------
   tabs.forEach(function (tab) {
     tab.addEventListener('click', function () {
-      const target = tab.dataset.tab;
-
-      const currentActive = document.querySelector('.auth-form.active');
-      let currentName = '';
-      if (currentActive) currentName = currentActive.id.replace('Form', '').toLowerCase();
-
-      const isTopLevelSwitch =
-        (currentName === 'login' || currentName === 'signup') &&
-        (target      === 'login' || target      === 'signup') &&
-        currentName !== target;
-
-      if (isTopLevelSwitch && typeof window.__warpTransition === 'function') {
-        window.__warpTransition(function () { showForm(target); });
-      } else {
-        showForm(target);
-      }
+      showForm(tab.dataset.tab);
     });
   });
 
@@ -427,7 +558,7 @@
       showForm('otp');
       clearOtpInputs();
       const firstOtp = document.querySelector('[data-otp="0"]');
-      if (firstOtp) firstOtp.focus();
+      if (firstOtp) setTimeout(function () { firstOtp.focus(); }, 450);
     });
   }
 
@@ -529,7 +660,7 @@
         const rp2 = document.getElementById('resetPass2');
         if (rp)  rp.value = '';
         if (rp2) rp2.value = '';
-        if (rp)  rp.focus();
+        if (rp) setTimeout(function () { rp.focus(); }, 450);
       }, 400);
     });
   }
@@ -678,6 +809,7 @@
     }
   })();
 
+  // Expose for debugging / external triggers
   window.DarkOrbitAuth = {
     showForm: showForm,
     showMsg: showMsg,
