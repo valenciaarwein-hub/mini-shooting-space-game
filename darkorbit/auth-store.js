@@ -2,7 +2,6 @@
 // DARK ORBIT · AUTH SYSTEM
 // Handles: signup, login, social login, forgot password, OTP, reset,
 // logout, session restore, and starting the game.
-// Tab switching triggers the warp transition exposed by script.js.
 // ====================================================================
 (function () {
   'use strict';
@@ -143,30 +142,10 @@
     showMsg('');
   }
 
-  // ---------- tab clicks: warp between login <-> signup ----------
+  // ---------- tab clicks: switch forms directly (no warp) ----------
   tabs.forEach(function (tab) {
     tab.addEventListener('click', function () {
-      const target = tab.dataset.tab;
-
-      const currentActive = document.querySelector('.auth-form.active');
-      let currentName = '';
-      if (currentActive) currentName = currentActive.id.replace('Form', '').toLowerCase();
-
-      const isTopLevelSwitch =
-        (currentName === 'login' || currentName === 'signup') &&
-        (target      === 'login' || target      === 'signup') &&
-        currentName !== target;
-
-      if (isTopLevelSwitch && typeof window.__warpTransition === 'function') {
-        const card = document.querySelector('.auth-card');
-        if (card) card.classList.add('warping');
-        window.__warpTransition(function () {
-          showForm(target);
-          setTimeout(function () { if (card) card.classList.remove('warping'); }, 120);
-        });
-      } else {
-        showForm(target);
-      }
+      showForm(tab.dataset.tab);
     });
   });
 
