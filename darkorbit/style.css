@@ -32,11 +32,11 @@ body {
   box-shadow: 0 0 40px #00a6ff22, 0 0 20px #0a1a2a inset;
   position: relative;
   max-height: 92vh;
-  overflow-y: auto;
-  /* Base transition so removing .warping eases back smoothly */
-  transition: transform 0.25s ease, filter 0.25s ease, box-shadow 0.25s ease;
+  overflow: hidden;
+  /* height is animated by JS; transition makes it smooth */
+  transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: height;
 }
-
 .auth-card::before {
   content: '';
   position: absolute;
@@ -44,42 +44,6 @@ body {
   height: 2px;
   background: linear-gradient(90deg, transparent, #00c8ff, transparent);
   border-radius: 2px;
-}
-
-/* ---------- WARP TRANSITION ---------- */
-@keyframes warp-card {
-  0%   { transform: scale(1)    rotate(0deg);    filter: blur(0)   brightness(1);   box-shadow: 0 0 40px #00a6ff22, 0 0 20px #0a1a2a inset; }
-  20%  { transform: scale(0.94) rotate(-0.6deg); filter: blur(0.4px) brightness(1.15); box-shadow: 0 0 60px #00a6ff66, 0 0 30px #00a6ff44 inset; }
-  45%  { transform: scale(0.90) rotate(0.4deg);  filter: blur(1.2px) brightness(1.7);  box-shadow: 0 0 90px #00d4ffcc, 0 0 40px #00a6ff88 inset; }
-  55%  { transform: scale(0.90) rotate(0.4deg);  filter: blur(1.2px) brightness(1.7);  box-shadow: 0 0 90px #00d4ffcc, 0 0 40px #00a6ff88 inset; }
-  80%  { transform: scale(0.96) rotate(-0.2deg); filter: blur(0.4px) brightness(1.2);  box-shadow: 0 0 60px #00a6ff66, 0 0 30px #00a6ff44 inset; }
-  100% { transform: scale(1)    rotate(0deg);    filter: blur(0)   brightness(1);   box-shadow: 0 0 40px #00a6ff22, 0 0 20px #0a1a2a inset; }
-}
-
-.auth-card.warping {
-  animation: warp-card 0.9s cubic-bezier(0.45, 0, 0.55, 1) both;
-}
-
-/* Expanding ring emitted from the card during warp */
-.auth-card::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: 12px;
-  pointer-events: none;
-  opacity: 0;
-  box-shadow: 0 0 0 0 rgba(0, 212, 255, 0);
-}
-
-@keyframes warp-ring {
-  0%   { opacity: 0;   box-shadow: 0 0 0 0     rgba(0, 212, 255, 0.0); }
-  25%  { opacity: 0.9; box-shadow: 0 0 0 0     rgba(0, 212, 255, 0.7); }
-  60%  { opacity: 0.7; box-shadow: 0 0 0 22px  rgba(0, 212, 255, 0.15); }
-  100% { opacity: 0;   box-shadow: 0 0 0 40px  rgba(0, 212, 255, 0.0); }
-}
-
-.auth-card.warping::after {
-  animation: warp-ring 0.9s ease-out both;
 }
 
 .auth-title {
@@ -101,6 +65,7 @@ body {
   display: flex;
   margin-bottom: 14px;
   border-bottom: 1px solid #1e3b5a;
+  position: relative;
 }
 .auth-tab {
   flex: 1;
@@ -113,21 +78,53 @@ body {
   letter-spacing: 2px;
   cursor: pointer;
   position: relative;
-  transition: color 0.2s, background 0.2s;
+  transition: color 0.3s ease;
   outline: none;
+  z-index: 1;
 }
-.auth-tab:hover { color: #9fd8ff; background: rgba(0,168,255,0.08); }
+.auth-tab:hover { color: #9fd8ff; }
 .auth-tab.active { color: #7fe0ff; text-shadow: 0 0 10px #00a6ff; }
-.auth-tab.active::after {
-  content: '';
+
+/* Sliding underline indicator */
+.auth-tab-indicator {
   position: absolute;
-  bottom: -1px; left: 0; right: 0;
+  bottom: -1px;
+  left: 0;
   height: 2px;
+  width: 50%;
   background: #00c8ff;
   box-shadow: 0 0 10px #00c8ff;
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+  pointer-events: none;
 }
-.auth-form { display: none; flex-direction: column; gap: 8px; }
-.auth-form.active { display: flex; }
+
+/* ---------- MORPHING FORMS ---------- */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: 76px; /* below tabs */
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  pointer-events: none;
+  transition:
+    opacity 0.28s ease,
+    transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity, transform;
+}
+.auth-form.active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+  position: relative;
+  left: 0;
+  right: 0;
+  top: 0;
+}
 
 .field { display: flex; flex-direction: column; gap: 3px; }
 .field label {
@@ -489,3 +486,10 @@ canvas {
   z-index: 10;
 }
 .info.hidden { display: none; }
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .auth-card,
+  .auth-form,
+  .auth-tab-indicator { transition: none !important; }
+}
