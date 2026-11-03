@@ -81,44 +81,56 @@
 
   // ---------- account-not-found prompt ----------
   function showNotFoundPrompt(message) {
+    if (!notFoundPrompt || !notFoundText) return;
     notFoundText.textContent = message ||
       'This account is not yet registered. Please sign up first to create an account.';
     notFoundPrompt.classList.remove('show');
     void notFoundPrompt.offsetWidth; // restart animation
     notFoundPrompt.classList.add('show');
-    loginUserInput.classList.add('input-error');
-    loginPassInput.classList.add('input-error');
+    if (loginUserInput) loginUserInput.classList.add('input-error');
+    if (loginPassInput) loginPassInput.classList.add('input-error');
   }
   function hideNotFoundPrompt() {
+    if (!notFoundPrompt) return;
     notFoundPrompt.classList.remove('show');
-    loginUserInput.classList.remove('input-error');
-    loginPassInput.classList.remove('input-error');
+    if (loginUserInput) loginUserInput.classList.remove('input-error');
+    if (loginPassInput) loginPassInput.classList.remove('input-error');
   }
-  loginUserInput.addEventListener('input', hideNotFoundPrompt);
-  loginPassInput.addEventListener('input', hideNotFoundPrompt);
+  // null-safe listeners (won't crash if the elements are missing)
+  if (loginUserInput) loginUserInput.addEventListener('input', hideNotFoundPrompt);
+  if (loginPassInput) loginPassInput.addEventListener('input', hideNotFoundPrompt);
 
-  gotoSignupBtn.addEventListener('click', () => {
-    const typed = loginUserInput.value.trim();
-    showForm('signup');
-    if (typed && isValidEmailFormat(typed)) {
-      document.getElementById('signupEmail').value = typed;
-      emailInput.dispatchEvent(new Event('input'));
-    } else if (typed) {
-      document.getElementById('signupUser').value = typed;
-    }
-    setTimeout(() => document.getElementById('signupUser').focus(), 50);
-  });
+  if (gotoSignupBtn) {
+    gotoSignupBtn.addEventListener('click', () => {
+      const typed = loginUserInput ? loginUserInput.value.trim() : '';
+      showForm('signup');
+      if (typed && isValidEmailFormat(typed)) {
+        const el = document.getElementById('signupEmail');
+        if (el) { el.value = typed; emailInput.dispatchEvent(new Event('input')); }
+      } else if (typed) {
+        const el = document.getElementById('signupUser');
+        if (el) el.value = typed;
+      }
+      const focusEl = document.getElementById('signupUser');
+      if (focusEl) setTimeout(() => focusEl.focus(), 50);
+    });
+  }
 
   // ---------- form switching ----------
   function showForm(name) {
     [loginForm, signupForm, forgotForm, otpForm, resetForm]
-      .forEach(f => f.classList.remove('active'));
+      .forEach(f => { if (f) f.classList.remove('active'); });
 
-    ({ login: loginForm, signup: signupForm, forgot: forgotForm,
-       otp: otpForm, reset: resetForm })[name].classList.add('active');
+    const targetForm = { login: loginForm, signup: signupForm, forgot: forgotForm,
+                         otp: otpForm, reset: resetForm }[name];
+    if (targetForm) targetForm.classList.add('active');
 
-    authTabs.style.display   = (name === 'login' || name === 'signup') ? 'flex'  : 'none';
-    socialBlock.style.display = (name === 'login' || name === 'signup') ? 'block' : 'none';
+    if (authTabs) {
+      authTabs.style.display = (name === 'login' || name === 'signup') ? 'flex' : 'none';
+    }
+    if (socialBlock) {
+      socialBlock.style.display = (name === 'login' || name === 'signup') ? 'block' : 'none';
+    }
 
     tabs.forEach(t => {
       const isActive = t.dataset.tab === name;
@@ -130,6 +142,7 @@
     if (name !== 'login')  hideNotFoundPrompt();
     showMsg('');
   }
+  // null-safe tab listeners (these are the ones that were not firing before)
   tabs.forEach(tab => tab.addEventListener('click', () => showForm(tab.dataset.tab)));
   document.querySelectorAll('[data-back]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -153,6 +166,7 @@
 
   // ---------- messages ----------
   function showMsg(text, type) {
+    if (!authMsg) return;
     authMsg.textContent = text;
     authMsg.className = 'auth-msg ' + (type || '');
     if (text) {
@@ -171,6 +185,7 @@
   let emailAvailable  = false;
 
   function resetEmailStatus() {
+    if (!emailStatus || !emailIcon || !emailInput || !signupBtn) return;
     emailAvailable = false;
     emailStatus.textContent = '';
     emailStatus.className = 'field-status';
@@ -180,6 +195,7 @@
     signupBtn.disabled = false;
   }
   function setEmailStatus(state, message) {
+    if (!emailStatus || !emailIcon || !emailInput || !signupBtn) return;
     emailStatus.textContent = message || '';
     emailStatus.className = 'field-status ' + (state || '');
     emailIcon.className = 'email-icon ' + (state || '');
@@ -207,17 +223,19 @@
       signupBtn.disabled = false;
     }
   }
-  emailInput.addEventListener('input', () => {
-    const email = emailInput.value.trim();
-    clearTimeout(emailCheckTimer);
-    if (!email) { resetEmailStatus(); return; }
-    if (!isValidEmailFormat(email)) { setEmailStatus('taken', 'INVALID FORMAT'); return; }
-    setEmailStatus('checking', 'CHECKING…');
-    emailCheckTimer = setTimeout(() => {
-      if (isEmailRegistered(email)) setEmailStatus('taken', 'ALREADY REGISTERED');
-      else                          setEmailStatus('available', 'AVAILABLE');
-    }, 400);
-  });
+  if (emailInput) {
+    emailInput.addEventListener('input', () => {
+      const email = emailInput.value.trim();
+      clearTimeout(emailCheckTimer);
+      if (!email) { resetEmailStatus(); return; }
+      if (!isValidEmailFormat(email)) { setEmailStatus('taken', 'INVALID FORMAT'); return; }
+      setEmailStatus('checking', 'CHECKING…');
+      emailCheckTimer = setTimeout(() => {
+        if (isEmailRegistered(email)) setEmailStatus('taken', 'ALREADY REGISTERED');
+        else                          setEmailStatus('available', 'AVAILABLE');
+      }, 400);
+    });
+  }
   function clearEmailFeedback() {
     resetEmailStatus();
     clearTimeout(emailCheckTimer);
@@ -226,99 +244,107 @@
   // ---------- OTP toast ----------
   let toastTimer = null;
   function showOtpToast(code) {
+    if (!otpToast || !toastCode) return;
     toastCode.textContent = code;
     otpToast.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => otpToast.classList.remove('show'), 10000);
   }
-  toastClose.addEventListener('click', () => otpToast.classList.remove('show'));
+  if (toastClose) toastClose.addEventListener('click', () => otpToast && otpToast.classList.remove('show'));
 
   // ==================================================================
   // SIGN UP
   // ==================================================================
-  signupForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const username = document.getElementById('signupUser').value.trim();
-    const email    = emailInput.value.trim();
-    const pass     = document.getElementById('signupPass').value;
-    const pass2    = document.getElementById('signupPass2').value;
+  if (signupForm) {
+    signupForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const usernameEl = document.getElementById('signupUser');
+      const passEl     = document.getElementById('signupPass');
+      const pass2El    = document.getElementById('signupPass2');
+      const username   = usernameEl ? usernameEl.value.trim() : '';
+      const email      = emailInput ? emailInput.value.trim() : '';
+      const pass       = passEl ? passEl.value : '';
+      const pass2      = pass2El ? pass2El.value : '';
 
-    if (!username || !email || !pass) { showMsg('ALL FIELDS REQUIRED', 'error'); return; }
-    if (username.length < 3)          { showMsg('USERNAME MUST BE 3+ CHARACTERS', 'error'); return; }
-    if (!isValidEmailFormat(email))   { showMsg('INVALID EMAIL FORMAT', 'error'); return; }
-    if (isEmailRegistered(email)) {
-      showMsg('EMAIL ALREADY REGISTERED', 'error');
-      setEmailStatus('taken', 'ALREADY REGISTERED');
-      return;
-    }
-    if (pass.length < 6)              { showMsg('PASSWORD MUST BE 6+ CHARACTERS', 'error'); return; }
-    if (pass !== pass2)               { showMsg('PASSWORDS DO NOT MATCH', 'error'); return; }
+      if (!username || !email || !pass) { showMsg('ALL FIELDS REQUIRED', 'error'); return; }
+      if (username.length < 3)          { showMsg('USERNAME MUST BE 3+ CHARACTERS', 'error'); return; }
+      if (!isValidEmailFormat(email))   { showMsg('INVALID EMAIL FORMAT', 'error'); return; }
+      if (isEmailRegistered(email)) {
+        showMsg('EMAIL ALREADY REGISTERED', 'error');
+        setEmailStatus('taken', 'ALREADY REGISTERED');
+        return;
+      }
+      if (pass.length < 6)              { showMsg('PASSWORD MUST BE 6+ CHARACTERS', 'error'); return; }
+      if (pass !== pass2)               { showMsg('PASSWORDS DO NOT MATCH', 'error'); return; }
 
-    const users = loadUsers();
-    const lowerUser = username.toLowerCase();
-    if (users[lowerUser]) { showMsg('USERNAME ALREADY TAKEN', 'error'); return; }
+      const users = loadUsers();
+      const lowerUser = username.toLowerCase();
+      if (users[lowerUser]) { showMsg('USERNAME ALREADY TAKEN', 'error'); return; }
 
-    users[lowerUser] = {
-      id: generateId(),
-      username,
-      email,
-      password: hashPassword(pass),
-      provider: 'local',
-      createdAt: Date.now(),
-      stats: { highScore: 0, gamesPlayed: 0 }
-    };
-    saveUsers(users);
+      users[lowerUser] = {
+        id: generateId(),
+        username,
+        email,
+        password: hashPassword(pass),
+        provider: 'local',
+        createdAt: Date.now(),
+        stats: { highScore: 0, gamesPlayed: 0 }
+      };
+      saveUsers(users);
 
-    showMsg('ACCOUNT CREATED · LOGGING IN…', 'success');
-    resetEmailStatus();
-    setTimeout(() => { setSession(lowerUser); startGame(username); }, 700);
-  });
+      showMsg('ACCOUNT CREATED · LOGGING IN…', 'success');
+      resetEmailStatus();
+      setTimeout(() => { setSession(lowerUser); startGame(username); }, 700);
+    });
+  }
 
   // ==================================================================
   // LOGIN
   // ==================================================================
-  loginForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const userInput = loginUserInput.value.trim().toLowerCase();
-    const pass      = loginPassInput.value;
-    if (!userInput || !pass) { showMsg('ALL FIELDS REQUIRED', 'error'); return; }
+  if (loginForm) {
+    loginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const userInput = loginUserInput ? loginUserInput.value.trim().toLowerCase() : '';
+      const pass      = loginPassInput ? loginPassInput.value : '';
+      if (!userInput || !pass) { showMsg('ALL FIELDS REQUIRED', 'error'); return; }
 
-    const users = loadUsers();
-    let account    = users[userInput];
-    let accountKey = userInput;
+      const users = loadUsers();
+      let account    = users[userInput];
+      let accountKey = userInput;
 
-    if (!account) {
-      for (const k in users) {
-        if (users[k].email && users[k].email.toLowerCase() === userInput) {
-          account = users[k];
-          accountKey = k;
-          break;
+      if (!account) {
+        for (const k in users) {
+          if (users[k].email && users[k].email.toLowerCase() === userInput) {
+            account = users[k];
+            accountKey = k;
+            break;
+          }
         }
       }
-    }
 
-    if (!account) {
-      showMsg('ACCOUNT NOT FOUND', 'error');
-      showNotFoundPrompt(
-        `The account "${loginUserInput.value.trim()}" is not yet registered. ` +
-        `Please sign up first to create an account.`
-      );
-      return;
-    }
-    if (account.provider !== 'local') {
-      showMsg('USE ' + account.provider.toUpperCase() + ' TO SIGN IN', 'error');
-      return;
-    }
-    if (account.password !== hashPassword(pass)) {
-      showMsg('INCORRECT PASSWORD', 'error');
-      return;
-    }
+      if (!account) {
+        showMsg('ACCOUNT NOT FOUND', 'error');
+        showNotFoundPrompt(
+          `The account "${loginUserInput ? loginUserInput.value.trim() : userInput}" is not yet registered. ` +
+          `Please sign up first to create an account.`
+        );
+        return;
+      }
+      if (account.provider !== 'local') {
+        showMsg('USE ' + account.provider.toUpperCase() + ' TO SIGN IN', 'error');
+        return;
+      }
+      if (account.password !== hashPassword(pass)) {
+        showMsg('INCORRECT PASSWORD', 'error');
+        return;
+      }
 
-    showMsg('ACCESS GRANTED', 'success');
-    hideNotFoundPrompt();
-    const displayName = account.username;
-    setTimeout(() => { setSession(accountKey); startGame(displayName); }, 500);
-  });
+      showMsg('ACCESS GRANTED', 'success');
+      hideNotFoundPrompt();
+      const displayName = account.username;
+      setTimeout(() => { setSession(accountKey); startGame(displayName); }, 500);
+    });
+  }
 
   // ==================================================================
   // FORGOT PASSWORD + OTP
@@ -327,56 +353,65 @@
   let resendInterval = null;
   const RESEND_SECONDS = 30;
 
-  document.getElementById('forgotLink').addEventListener('click', () => {
-    showForm('forgot');
-    document.getElementById('forgotUser').value = '';
-  });
+  const forgotLinkEl = document.getElementById('forgotLink');
+  if (forgotLinkEl) {
+    forgotLinkEl.addEventListener('click', () => {
+      showForm('forgot');
+      const el = document.getElementById('forgotUser');
+      if (el) el.value = '';
+    });
+  }
 
-  forgotForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const input = document.getElementById('forgotUser').value.trim().toLowerCase();
-    if (!input) { showMsg('ENTER USERNAME OR EMAIL', 'error'); return; }
+  if (forgotForm) {
+    forgotForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const el = document.getElementById('forgotUser');
+      const input = el ? el.value.trim().toLowerCase() : '';
+      if (!input) { showMsg('ENTER USERNAME OR EMAIL', 'error'); return; }
 
-    const users = loadUsers();
-    let accountKey = null, account = null;
-    if (users[input]) { accountKey = input; account = users[input]; }
-    else {
-      for (const k in users) {
-        if (users[k].email && users[k].email.toLowerCase() === input) {
-          accountKey = k; account = users[k]; break;
+      const users = loadUsers();
+      let accountKey = null, account = null;
+      if (users[input]) { accountKey = input; account = users[input]; }
+      else {
+        for (const k in users) {
+          if (users[k].email && users[k].email.toLowerCase() === input) {
+            accountKey = k; account = users[k]; break;
+          }
         }
       }
-    }
-    if (!account) {
-      showMsg('ACCOUNT NOT FOUND · PLEASE SIGN UP', 'error');
-      showNotFoundPrompt(
-        `The account "${input}" is not registered. ` +
-        `Please sign up first to create an account.`
-      );
-      return;
-    }
-    if (account.provider !== 'local') {
-      showMsg('THIS ACCOUNT USES ' + account.provider.toUpperCase() +
-              ' · NO PASSWORD TO RESET', 'error');
-      return;
-    }
+      if (!account) {
+        showMsg('ACCOUNT NOT FOUND · PLEASE SIGN UP', 'error');
+        showNotFoundPrompt(
+          `The account "${input}" is not registered. ` +
+          `Please sign up first to create an account.`
+        );
+        return;
+      }
+      if (account.provider !== 'local') {
+        showMsg('THIS ACCOUNT USES ' + account.provider.toUpperCase() +
+                ' · NO PASSWORD TO RESET', 'error');
+        return;
+      }
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    resetCtx = {
-      key: accountKey, code,
-      expires: Date.now() + 5 * 60 * 1000,
-      displayName: account.username,
-      email: account.email
-    };
-    localStorage.setItem(RESET_KEY, JSON.stringify(resetCtx));
-    document.getElementById('otpTarget').textContent = account.email;
-    showMsg('OTP SENT TO ' + account.email, 'success');
-    showOtpToast(code);
-    startResendCountdown();
-    showForm('otp');
-    clearOtpInputs();
-    document.querySelector('[data-otp="0"]').focus();
-  });
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      resetCtx = {
+        key: accountKey, code,
+        expires: Date.now() + 5 * 60 * 1000,
+        displayName: account.username,
+        email: account.email
+      };
+      localStorage.setItem(RESET_KEY, JSON.stringify(resetCtx));
+      const otpTargetEl = document.getElementById('otpTarget');
+      if (otpTargetEl) otpTargetEl.textContent = account.email;
+      showMsg('OTP SENT TO ' + account.email, 'success');
+      showOtpToast(code);
+      startResendCountdown();
+      showForm('otp');
+      clearOtpInputs();
+      const firstOtp = document.querySelector('[data-otp="0"]');
+      if (firstOtp) firstOtp.focus();
+    });
+  }
 
   function startResendCountdown() {
     stopResendCountdown();
@@ -410,18 +445,22 @@
     if (resendBtn) resendBtn.disabled = false;
   }
 
-  document.getElementById('resendOtp').addEventListener('click', () => {
-    if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); return; }
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    resetCtx.code = code;
-    resetCtx.expires = Date.now() + 5 * 60 * 1000;
-    localStorage.setItem(RESET_KEY, JSON.stringify(resetCtx));
-    showMsg('NEW OTP SENT', 'success');
-    showOtpToast(code);
-    clearOtpInputs();
-    document.querySelector('[data-otp="0"]').focus();
-    startResendCountdown();
-  });
+  const resendOtpBtn = document.getElementById('resendOtp');
+  if (resendOtpBtn) {
+    resendOtpBtn.addEventListener('click', () => {
+      if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); return; }
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      resetCtx.code = code;
+      resetCtx.expires = Date.now() + 5 * 60 * 1000;
+      localStorage.setItem(RESET_KEY, JSON.stringify(resetCtx));
+      showMsg('NEW OTP SENT', 'success');
+      showOtpToast(code);
+      clearOtpInputs();
+      const firstOtp = document.querySelector('[data-otp="0"]');
+      if (firstOtp) firstOtp.focus();
+      startResendCountdown();
+    });
+  }
 
   // ---------- OTP inputs ----------
   const otpInputs = document.querySelectorAll('[data-otp]');
@@ -455,42 +494,50 @@
     return Array.from(otpInputs).map(i => i.value).join('');
   }
 
-  otpForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); showForm('forgot'); return; }
-    const entered = getOtpValue();
-    if (entered.length !== 6)          { showMsg('ENTER ALL 6 DIGITS', 'error'); return; }
-    if (Date.now() > resetCtx.expires) { showMsg('OTP EXPIRED · REQUEST A NEW ONE', 'error'); return; }
-    if (entered !== resetCtx.code)     { showMsg('INVALID OTP', 'error'); return; }
+  if (otpForm) {
+    otpForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); showForm('forgot'); return; }
+      const entered = getOtpValue();
+      if (entered.length !== 6)          { showMsg('ENTER ALL 6 DIGITS', 'error'); return; }
+      if (Date.now() > resetCtx.expires) { showMsg('OTP EXPIRED · REQUEST A NEW ONE', 'error'); return; }
+      if (entered !== resetCtx.code)     { showMsg('INVALID OTP', 'error'); return; }
 
-    showMsg('IDENTITY VERIFIED', 'success');
-    stopResendCountdown();
-    setTimeout(() => {
-      showForm('reset');
-      document.getElementById('resetPass').value  = '';
-      document.getElementById('resetPass2').value = '';
-      document.getElementById('resetPass').focus();
-    }, 400);
-  });
+      showMsg('IDENTITY VERIFIED', 'success');
+      stopResendCountdown();
+      setTimeout(() => {
+        showForm('reset');
+        const rp  = document.getElementById('resetPass');
+        const rp2 = document.getElementById('resetPass2');
+        if (rp)  rp.value = '';
+        if (rp2) rp2.value = '';
+        if (rp)  rp.focus();
+      }, 400);
+    });
+  }
 
-  resetForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); showForm('forgot'); return; }
-    const pass  = document.getElementById('resetPass').value;
-    const pass2 = document.getElementById('resetPass2').value;
-    if (pass.length < 6) { showMsg('PASSWORD MUST BE 6+ CHARACTERS', 'error'); return; }
-    if (pass !== pass2)  { showMsg('PASSWORDS DO NOT MATCH', 'error'); return; }
+  if (resetForm) {
+    resetForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); showForm('forgot'); return; }
+      const rp  = document.getElementById('resetPass');
+      const rp2 = document.getElementById('resetPass2');
+      const pass  = rp ? rp.value : '';
+      const pass2 = rp2 ? rp2.value : '';
+      if (pass.length < 6) { showMsg('PASSWORD MUST BE 6+ CHARACTERS', 'error'); return; }
+      if (pass !== pass2)  { showMsg('PASSWORDS DO NOT MATCH', 'error'); return; }
 
-    const users   = loadUsers();
-    const account = users[resetCtx.key];
-    if (!account) { showMsg('ACCOUNT NO LONGER EXISTS', 'error'); showForm('login'); return; }
+      const users   = loadUsers();
+      const account = users[resetCtx.key];
+      if (!account) { showMsg('ACCOUNT NO LONGER EXISTS', 'error'); showForm('login'); return; }
 
-    account.password = hashPassword(pass);
-    saveUsers(users);
-    clearResetState();
-    showMsg('PASSWORD UPDATED · PLEASE LOGIN', 'success');
-    setTimeout(() => showForm('login'), 800);
-  });
+      account.password = hashPassword(pass);
+      saveUsers(users);
+      clearResetState();
+      showMsg('PASSWORD UPDATED · PLEASE LOGIN', 'success');
+      setTimeout(() => showForm('login'), 800);
+    });
+  }
 
   function clearResetState() {
     resetCtx = null;
@@ -505,7 +552,8 @@
       const saved = JSON.parse(localStorage.getItem(RESET_KEY));
       if (saved && saved.expires > Date.now()) {
         resetCtx = saved;
-        document.getElementById('otpTarget').textContent = saved.email || 'your account';
+        const t = document.getElementById('otpTarget');
+        if (t) t.textContent = saved.email || 'your account';
         showForm('otp');
         startResendCountdown();
       } else if (saved) {
@@ -551,45 +599,50 @@
     }
     setTimeout(() => { setSession(sessionKey); startGame(displayName); }, 700);
   }
-  document.getElementById('googleBtn').addEventListener('click', () => socialLogin('google'));
-  document.getElementById('facebookBtn').addEventListener('click', () => socialLogin('facebook'));
+  const googleBtn = document.getElementById('googleBtn');
+  if (googleBtn) googleBtn.addEventListener('click', () => socialLogin('google'));
+  const facebookBtn = document.getElementById('facebookBtn');
+  if (facebookBtn) facebookBtn.addEventListener('click', () => socialLogin('facebook'));
 
   // ==================================================================
   // LOGOUT
   // ==================================================================
-  document.getElementById('logoutBtn').addEventListener('click', () => {
-    clearSession();
-    clearResetState();
-    clearEmailFeedback();
-    hideNotFoundPrompt();
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      clearSession();
+      clearResetState();
+      clearEmailFeedback();
+      hideNotFoundPrompt();
 
-    userBar.classList.remove('visible');
-    gameWrapper.classList.remove('visible');
-    gameInfo.classList.add('hidden');
-    authOverlay.classList.remove('hidden');
+      if (userBar)       userBar.classList.remove('visible');
+      if (gameWrapper)   gameWrapper.classList.remove('visible');
+      if (gameInfo)      gameInfo.classList.add('hidden');
+      if (authOverlay)   authOverlay.classList.remove('hidden');
 
-    showForm('login');
-    showMsg('LOGGED OUT', 'success');
-    window.__gameRunning = false;
+      showForm('login');
+      showMsg('LOGGED OUT', 'success');
+      window.__gameRunning = false;
 
-    document.querySelectorAll('.eye-toggle.showing').forEach(btn => {
-      const input = document.getElementById(btn.getAttribute('data-target'));
-      if (input) input.type = 'password';
-      btn.classList.remove('showing');
+      document.querySelectorAll('.eye-toggle.showing').forEach(btn => {
+        const input = document.getElementById(btn.getAttribute('data-target'));
+        if (input) input.type = 'password';
+        btn.classList.remove('showing');
+      });
     });
-  });
+  }
 
   // ==================================================================
   // START GAME (called after login / signup / social / session restore)
   // ==================================================================
   function startGame(displayName) {
-    authOverlay.classList.add('hidden');
-    userBar.classList.add('visible');
-    gameWrapper.classList.add('visible');
-    gameInfo.classList.remove('hidden');
+    if (authOverlay) authOverlay.classList.add('hidden');
+    if (userBar)     userBar.classList.add('visible');
+    if (gameWrapper) gameWrapper.classList.add('visible');
+    if (gameInfo)    gameInfo.classList.remove('hidden');
 
-    userNameEl.textContent      = displayName;
-    avatarInitial.textContent   = displayName.charAt(0).toUpperCase();
+    if (userNameEl)    userNameEl.textContent    = displayName;
+    if (avatarInitial) avatarInitial.textContent = displayName.charAt(0).toUpperCase();
 
     if (typeof window.__initGame === 'function') window.__initGame();
     window.__gameRunning = true;
