@@ -1,7 +1,7 @@
 // ====================================================================
 // DARK ORBIT · AUTH SYSTEM
 // Signup redirects to LOGIN; the user must log in before the game.
-// Adds a smooth morph transition between login and signup.
+// Smooth morph between login and signup with NO form overlap.
 // ====================================================================
 (function () {
   'use strict';
@@ -126,58 +126,74 @@
       (targetName  === 'login' || targetName  === 'signup') &&
       currentName !== targetName;
 
+    // ---------- INSTANT PATH ----------
     if (!authCard || instant || reducedMotion || !isTopLevelSwitch) {
       [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
-        if (f) f.classList.remove('active');
+        if (!f) return;
+        f.classList.remove('active');
+        f.classList.remove('leaving');
       });
       targetForm.classList.add('active');
       authCard.style.height = '';
       return;
     }
 
-    if (morphing) morphing = false;
+    // ---------- MORPH PATH (sequential, no overlap) ----------
+    if (morphing) {
+      [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
+        if (!f) return;
+        f.classList.remove('leaving');
+      });
+      morphing = false;
+    }
 
     const startH = authCard.getBoundingClientRect().height;
-    const endH = (function () {
-      const clone = targetForm.cloneNode(true);
-      clone.style.position = 'relative';
-      clone.style.opacity = '1';
-      clone.style.transform = 'none';
-      clone.style.left = '0';
-      clone.style.right = '0';
-      clone.style.top = '0';
-      clone.style.visibility = 'hidden';
-      clone.style.pointerEvents = 'none';
-      authCard.appendChild(clone);
-      const h = clone.scrollHeight;
-      authCard.removeChild(clone);
-      return h;
-    })();
+
+    // Measure target height via a hidden out-of-flow clone
+    const clone = targetForm.cloneNode(true);
+    clone.style.cssText =
+      'position:absolute;visibility:hidden;pointer-events:none;' +
+      'left:20px;right:20px;top:76px;opacity:0;transform:none;';
+    authCard.appendChild(clone);
+    const targetH = clone.scrollHeight;
+    authCard.removeChild(clone);
 
     morphing = true;
+
+    // STEP 1: Pin current height
     authCard.style.height = startH + 'px';
 
-    if (currentActive) currentActive.classList.remove('active');
+    // STEP 2: Outgoing form leaves layout immediately (position:absolute
+    // via .leaving) and fades to 0. Nothing else is in flow yet, so no
+    // overlap is possible.
+    if (currentActive) {
+      currentActive.classList.remove('active');
+      currentActive.classList.add('leaving');
+    }
 
-    requestAnimationFrame(function () {
-      authCard.style.height = endH + 'px';
-    });
-
+    // STEP 3: After the fade-out completes, animate the card height and
+    // bring the target form into flow.
     setTimeout(function () {
+      authCard.style.height = targetH + 'px';
       targetForm.classList.add('active');
-    }, 160);
 
-    const done = function () {
-      if (!morphing) return;
-      morphing = false;
-      authCard.style.height = '';
-      authCard.removeEventListener('transitionend', onEnd);
-    };
-    const onEnd = function (e) {
-      if (e.propertyName === 'height') done();
-    };
-    authCard.addEventListener('transitionend', onEnd);
-    setTimeout(done, 500);
+      [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
+        if (!f || f === targetForm) return;
+        f.classList.remove('leaving');
+      });
+
+      const done = function () {
+        if (!morphing) return;
+        morphing = false;
+        authCard.style.height = '';
+        authCard.removeEventListener('transitionend', onEnd);
+      };
+      const onEnd = function (e) {
+        if (e.propertyName === 'height') done();
+      };
+      authCard.addEventListener('transitionend', onEnd);
+      setTimeout(done, 500);
+    }, 190);
   }
 
   function showForm(name) {
@@ -398,7 +414,6 @@
       };
       saveUsers(users);
 
-      // Clear signup fields
       if (usernameEl) usernameEl.value = '';
       if (passEl)     passEl.value = '';
       if (pass2El)    pass2El.value = '';
@@ -407,7 +422,6 @@
 
       showMsg('ACCOUNT CREATED \u00B7 PLEASE LOG IN', 'success');
 
-      // Switch to LOGIN after a short delay, pre-fill username, require password
       setTimeout(function () {
         morphToForm('login', false);
         if (loginUserInput) {
