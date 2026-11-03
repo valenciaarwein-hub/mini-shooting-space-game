@@ -1,13 +1,13 @@
 // ====================================================================
 // DARK ORBIT · GAME ENGINE + WARP TRANSITION
 // Auth lives in auth.js. This file owns the canvas game loop and the
-// fullscreen warp animation used when switching login ↔ signup.
+// pure warp animation used when switching login ↔ signup.
 // ====================================================================
 (function () {
   'use strict';
 
   // ==================================================================
-  // WARP TRANSITION (login ↔ signup)
+  // WARP TRANSITION (login ↔ signup) — pure warp, no streak particles
   // Exposes window.__warpTransition(callback) so auth.js can play the
   // effect and switch forms mid-animation.
   // ==================================================================
@@ -20,14 +20,20 @@
       'pointer-events: none',
       'z-index: 300',
       'opacity: 0',
-      'transition: opacity 0.15s ease'
+      'transition: opacity 0.12s ease'
     ].join(';');
     document.body.appendChild(warpCanvas);
 
     const wctx = warpCanvas.getContext('2d');
     let warpRaf = null;
     let warpRunning = false;
-    let warpParticles = [];
+    let warpStart = 0;
+    let warpCallback = null;
+    let warpCallbackFired = false;
+
+    const WARP_DURATION = 900;   // full cycle ms
+    const WARP_MIDPOINT = 450;   // when the form swap happens
+    const WARP_PEAK     = 0.45;  // 0..1 — when the glow is brightest
 
     function sizeWarpCanvas() {
       const dpr = window.devicePixelRatio || 1;
@@ -40,78 +46,93 @@
     sizeWarpCanvas();
     window.addEventListener('resize', sizeWarpCanvas);
 
-    const WARP_DURATION = 900;
-    const WARP_MIDPOINT = 450;
-
-    function spawnWarpParticles(strength) {
-      const cx = window.innerWidth  / 2;
-      const cy = window.innerHeight / 2;
-      const count = Math.floor(60 * strength);
-      for (let i = 0; i < count; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist  = 40 + Math.random() * 200;
-        const speed = 6 + Math.random() * 10;
-        warpParticles.push({
-          x: cx + Math.cos(angle) * dist,
-          y: cy + Math.sin(angle) * dist,
-          vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed,
-          len: 20 + Math.random() * 60,
-          hue: 190 + Math.random() * 40,
-          life: 1.0,
-          decay: 0.02 + Math.random() * 0.02
-        });
-      }
+    function smoothstep(t) {
+      t = Math.max(0, Math.min(1, t));
+      return t * t * (3 - 2 * t);
     }
 
-    function drawWarpFrame() {
+    function drawWarpFrame(progress) {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      wctx.clearRect(0, 0, w, h);
-
       const cx = w / 2;
       const cy = h / 2;
+      const maxR = Math.hypot(w, h) * 0.75;
 
-      const grad = wctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.7);
-      grad.addColorStop(0,   'rgba(0, 170, 255, 0.18)');
-      grad.addColorStop(0.4, 'rgba(0, 100, 200, 0.06)');
-      grad.addColorStop(1,   'rgba(0, 0, 0, 0)');
-      wctx.fillStyle = grad;
+      wctx.clearRect(0, 0, w, h);
+
+      let intensity;
+      if (progress < WARP_PEAK) {
+        intensity = smoothstep(progress / WARP_PEAK);
+      } else {
+        intensity = 1 - smoothstep((progress - WARP_PEAK) / (1 - WARP_PEAK));
+      }
+
+      if (intensity <= 0.001) return;
+
+      const radiusT = Math.min(1, progress / (WARP_PEAK * 1.6));
+      const radius  = maxR * smoothstep(radiusT);
+
+      wctx.fillStyle = 'rgba(0, 140, 220, ' + (intensity * 0.22) + ')';
       wctx.fillRect(0, 0, w, h);
 
-      for (let i = warpParticles.length - 1; i >= 0; i--) {
-        const p = warpParticles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vx *= 1.02;
-        p.vy *= 1.02;
-        p.life -= p.decay;
+      const coreR = Math.max(40, maxR * 0.18 * intensity);
+      const coreGrad = wctx.createRadialGradient(cx, cy, 0, cx, cy, coreR);
+      coreGrad.addColorStop(0,    'rgba(220, 245, 255, ' + (intensity * 0.95) + ')');
+      coreGrad.addColorStop(0.35, 'rgba(120, 210, 255, ' + (intensity * 0.55) + ')');
+      coreGrad.addColorStop(0.75, 'rgba(0, 150, 255, '   + (intensity * 0.18) + ')');
+      coreGrad.addColorStop(1,    'rgba(0, 80, 160, 0)');
+      wctx.fillStyle = coreGrad;
+      wctx.beginPath();
+      wctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+      wctx.fill();
 
-        if (p.life <= 0) { warpParticles.splice(i, 1); continue; }
-
-        const dx = p.x - cx;
-        const dy = p.y - cy;
-        const d  = Math.hypot(dx, dy) || 1;
-        const ux = dx / d;
-        const uy = dy / d;
-
-        const alpha = Math.min(1, p.life) * 0.9;
-        wctx.strokeStyle = 'hsla(' + p.hue + ', 100%, 70%, ' + alpha + ')';
-        wctx.lineWidth = 1 + Math.random() * 1.5;
-        wctx.shadowBlur = 12;
-        wctx.shadowColor = 'hsla(' + p.hue + ', 100%, 60%, ' + alpha + ')';
+      if (radius > 2) {
+        const ringAlpha = intensity * (1 - radiusT * 0.4);
+        wctx.strokeStyle = 'rgba(120, 220, 255, ' + ringAlpha + ')';
+        wctx.lineWidth   = 2 + intensity * 4;
+        wctx.shadowBlur  = 25;
+        wctx.shadowColor = 'rgba(0, 200, 255, ' + intensity + ')';
         wctx.beginPath();
-        wctx.moveTo(p.x, p.y);
-        wctx.lineTo(p.x - ux * p.len, p.y - uy * p.len);
+        wctx.arc(cx, cy, radius, 0, Math.PI * 2);
         wctx.stroke();
+        wctx.shadowBlur = 0;
       }
-      wctx.shadowBlur = 0;
+
+      const haloGrad = wctx.createRadialGradient(cx, cy, radius * 0.6, cx, cy, maxR);
+      haloGrad.addColorStop(0,    'rgba(0, 180, 255, 0)');
+      haloGrad.addColorStop(0.5,  'rgba(0, 160, 255, ' + (intensity * 0.12) + ')');
+      haloGrad.addColorStop(1,    'rgba(0, 0, 0, 0)');
+      wctx.fillStyle = haloGrad;
+      wctx.fillRect(0, 0, w, h);
+
+      const flash = Math.max(0, intensity - 0.7) / 0.3;
+      if (flash > 0) {
+        wctx.fillStyle = 'rgba(255, 255, 255, ' + (flash * 0.18) + ')';
+        wctx.fillRect(0, 0, w, h);
+      }
     }
 
     function warpLoop() {
       if (!warpRunning) return;
-      drawWarpFrame();
-      warpRaf = requestAnimationFrame(warpLoop);
+      const elapsed  = performance.now() - warpStart;
+      const progress = Math.min(1, elapsed / WARP_DURATION);
+
+      if (!warpCallbackFired && elapsed >= WARP_MIDPOINT) {
+        warpCallbackFired = true;
+        if (typeof warpCallback === 'function') warpCallback();
+      }
+
+      drawWarpFrame(progress);
+
+      if (elapsed < WARP_DURATION) {
+        warpRaf = requestAnimationFrame(warpLoop);
+      } else {
+        warpRunning = false;
+        warpRaf = null;
+        warpCallback = null;
+        warpCanvas.style.opacity = '0';
+        wctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      }
     }
 
     window.__warpTransition = function (midCallback) {
@@ -121,28 +142,13 @@
       }
 
       warpRunning = true;
-      warpParticles = [];
+      warpStart = performance.now();
+      warpCallback = midCallback;
+      warpCallbackFired = false;
       warpCanvas.style.opacity = '1';
 
-      spawnWarpParticles(1.0);
-      warpLoop();
-
-      setTimeout(function () {
-        if (typeof midCallback === 'function') midCallback();
-        spawnWarpParticles(0.8);
-      }, WARP_MIDPOINT);
-
-      setTimeout(function () {
-        warpCanvas.style.opacity = '0';
-        spawnWarpParticles(0.4);
-      }, WARP_DURATION - 150);
-
-      setTimeout(function () {
-        warpRunning = false;
-        if (warpRaf) { cancelAnimationFrame(warpRaf); warpRaf = null; }
-        warpParticles = [];
-        wctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      }, WARP_DURATION);
+      drawWarpFrame(0);
+      warpRaf = requestAnimationFrame(warpLoop);
     };
   })();
 
