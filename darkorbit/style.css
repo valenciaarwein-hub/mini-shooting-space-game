@@ -100,30 +100,38 @@ body {
 }
 
 /* ---------- MORPHING FORMS ---------- */
+/* ---------- MORPHING FORMS (no overlap) ---------- */
+/*
+  Forms are stacked in the same flow slot. Only the .active form is
+  visible. When .leaving is present, the form is transitioning OUT and
+  occupies NO layout space (position: absolute), so the incoming form
+  can't overlap it. This avoids the crossfade overlap entirely.
+*/
 .auth-form {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  position: absolute;
-  left: 20px;
-  right: 20px;
-  top: 76px; /* below tabs */
   opacity: 0;
-  transform: translateY(8px) scale(0.98);
+  transform: none;
   pointer-events: none;
-  transition:
-    opacity 0.28s ease,
-    transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: opacity, transform;
+  /* Fade-out is quick, so the old form disappears fast */
+  transition: opacity 0.18s ease-out;
+  will-change: opacity;
 }
 .auth-form.active {
   opacity: 1;
-  transform: translateY(0) scale(1);
   pointer-events: auto;
-  position: relative;
-  left: 0;
-  right: 0;
-  top: 0;
+}
+/* Form that is being animated out: absolutely positioned so it does not
+   push or overlap the incoming form, and fades to 0 */
+.auth-form.leaving {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: 76px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease-out;
 }
 
 .field { display: flex; flex-direction: column; gap: 3px; }
