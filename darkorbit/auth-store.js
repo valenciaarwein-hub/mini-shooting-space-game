@@ -1,7 +1,7 @@
 // ====================================================================
 // DARK ORBIT · AUTH SYSTEM
 // Signup redirects to LOGIN; the user must log in before the game.
-// Smooth morph between login and signup with NO form overlap.
+// Fixed-size card during login ↔ signup morph.
 // ====================================================================
 (function () {
   'use strict';
@@ -97,6 +97,8 @@
     indicator.style.transform = 'translateX(' + (idx * 100) + '%)';
   }
 
+  // Crossfade between login and signup without resizing the card.
+  // The card's CSS min-height holds it at the taller (signup) size.
   function morphToForm(targetName, instant) {
     const targetForm = { login: loginForm, signup: signupForm, forgot: forgotForm,
                          otp: otpForm, reset: resetForm }[targetName];
@@ -126,74 +128,35 @@
       (targetName  === 'login' || targetName  === 'signup') &&
       currentName !== targetName;
 
-    // ---------- INSTANT PATH ----------
+    // ---- Instant swap (non-morph cases) ----
     if (!authCard || instant || reducedMotion || !isTopLevelSwitch) {
       [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
-        if (!f) return;
-        f.classList.remove('active');
-        f.classList.remove('leaving');
+        if (f) f.classList.remove('active');
       });
       targetForm.classList.add('active');
-      authCard.style.height = '';
+      // Non-tab forms need the card to size to their content
+      if (targetName === 'forgot' || targetName === 'otp' || targetName === 'reset') {
+        authCard.classList.add('card-autoheight');
+      } else {
+        authCard.classList.remove('card-autoheight');
+      }
       return;
     }
 
-    // ---------- MORPH PATH (sequential, no overlap) ----------
-    if (morphing) {
-      [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
-        if (!f) return;
-        f.classList.remove('leaving');
-      });
-      morphing = false;
-    }
-
-    const startH = authCard.getBoundingClientRect().height;
-
-    // Measure target height via a hidden out-of-flow clone
-    const clone = targetForm.cloneNode(true);
-    clone.style.cssText =
-      'position:absolute;visibility:hidden;pointer-events:none;' +
-      'left:20px;right:20px;top:76px;opacity:0;transform:none;';
-    authCard.appendChild(clone);
-    const targetH = clone.scrollHeight;
-    authCard.removeChild(clone);
-
+    // ---- Morph: crossfade inside a FIXED card ----
+    authCard.classList.remove('card-autoheight');
+    if (morphing) morphing = false;
     morphing = true;
 
-    // STEP 1: Pin current height
-    authCard.style.height = startH + 'px';
+    if (currentActive) currentActive.classList.remove('active');
 
-    // STEP 2: Outgoing form leaves layout immediately (position:absolute
-    // via .leaving) and fades to 0. Nothing else is in flow yet, so no
-    // overlap is possible.
-    if (currentActive) {
-      currentActive.classList.remove('active');
-      currentActive.classList.add('leaving');
-    }
-
-    // STEP 3: After the fade-out completes, animate the card height and
-    // bring the target form into flow.
     setTimeout(function () {
-      authCard.style.height = targetH + 'px';
       targetForm.classList.add('active');
+    }, 120);
 
-      [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
-        if (!f || f === targetForm) return;
-        f.classList.remove('leaving');
-      });
-
-      const done = function () {
-        if (!morphing) return;
-        morphing = false;
-        authCard.style.height = '';
-        authCard.removeEventListener('transitionend', onEnd);
-      };
-      const onEnd = function (e) {
-        if (e.propertyName === 'height') done();
-      };
-      authCard.addEventListener('transitionend', onEnd);
-      setTimeout(done, 500);
-    }, 190);
+    setTimeout(function () {
+      morphing = false;
+    }, 500);
   }
 
   function showForm(name) {
@@ -210,29 +173,12 @@
     notFoundPrompt.classList.add('show');
     if (loginUserInput) loginUserInput.classList.add('input-error');
     if (loginPassInput) loginPassInput.classList.add('input-error');
-    requestAnimationFrame(function () { refreshCardHeight(); });
   }
   function hideNotFoundPrompt() {
     if (!notFoundPrompt) return;
     notFoundPrompt.classList.remove('show');
     if (loginUserInput) loginUserInput.classList.remove('input-error');
     if (loginPassInput) loginPassInput.classList.remove('input-error');
-    requestAnimationFrame(function () { refreshCardHeight(); });
-  }
-
-  function refreshCardHeight() {
-    if (!authCard) return;
-    const active = document.querySelector('.auth-form.active');
-    if (!active) return;
-    authCard.style.height = '';
-    const targetH = active.scrollHeight;
-    if (targetH > 0 && Math.abs(authCard.getBoundingClientRect().height - targetH) > 2) {
-      authCard.style.height = authCard.getBoundingClientRect().height + 'px';
-      requestAnimationFrame(function () {
-        authCard.style.height = targetH + 'px';
-      });
-      setTimeout(function () { authCard.style.height = ''; }, 450);
-    }
   }
 
   if (loginUserInput) loginUserInput.addEventListener('input', hideNotFoundPrompt);
