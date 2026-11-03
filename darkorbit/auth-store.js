@@ -1,7 +1,6 @@
 // ====================================================================
 // DARK ORBIT · AUTH SYSTEM
-// Handles: signup, login, social login, forgot password, OTP, reset,
-// logout, session restore, and starting the game.
+// Signup redirects to LOGIN; the user must log in before the game.
 // Adds a smooth morph transition between login and signup.
 // ====================================================================
 (function () {
@@ -98,32 +97,6 @@
     indicator.style.transform = 'translateX(' + (idx * 100) + '%)';
   }
 
-  // Measure a form's natural height without permanently changing the card
-  function measureForm(form) {
-    if (!form) return 0;
-    // Temporarily make it relative + visible to measure, then restore
-    const wasActive = form.classList.contains('active');
-    if (!wasActive) {
-      form.style.position = 'relative';
-      form.style.opacity = '1';
-      form.style.transform = 'none';
-      form.style.left = '0';
-      form.style.right = '0';
-      form.style.top = '0';
-    }
-    const h = form.scrollHeight;
-    if (!wasActive) {
-      form.style.position = '';
-      form.style.opacity = '';
-      form.style.transform = '';
-      form.style.left = '';
-      form.style.right = '';
-      form.style.top = '';
-    }
-    return h;
-  }
-
-  // The actual smooth swap
   function morphToForm(targetName, instant) {
     const targetForm = { login: loginForm, signup: signupForm, forgot: forgotForm,
                          otp: otpForm, reset: resetForm }[targetName];
@@ -132,7 +105,6 @@
     const currentActive = document.querySelector('.auth-form.active');
     const currentName = currentActive ? currentActive.id.replace('Form', '').toLowerCase() : '';
 
-    // Always update tabs, header visibility, and social block immediately
     if (authTabs)    authTabs.style.display    = (targetName === 'login' || targetName === 'signup') ? 'flex'  : 'none';
     if (socialBlock) socialBlock.style.display = (targetName === 'login' || targetName === 'signup') ? 'block' : 'none';
 
@@ -147,7 +119,6 @@
     if (targetName !== 'login')  hideNotFoundPrompt();
     showMsg('');
 
-    // If not a login↔signup switch, or reduced motion, or no card → instant
     const reducedMotion = window.matchMedia &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const isTopLevelSwitch =
@@ -160,20 +131,14 @@
         if (f) f.classList.remove('active');
       });
       targetForm.classList.add('active');
-      // Clear any inline height set by previous morphs
       authCard.style.height = '';
       return;
     }
 
-    // ---- Morph: animate card height, crossfade forms ----
-    if (morphing) {
-      // If a morph is already running, finish it instantly and restart
-      morphing = false;
-    }
+    if (morphing) morphing = false;
 
     const startH = authCard.getBoundingClientRect().height;
-    const endH   = (function () {
-      // Measure target form height while it's detached from .active
+    const endH = (function () {
       const clone = targetForm.cloneNode(true);
       clone.style.position = 'relative';
       clone.style.opacity = '1';
@@ -192,20 +157,16 @@
     morphing = true;
     authCard.style.height = startH + 'px';
 
-    // Step 1: fade out current, shrink slightly
     if (currentActive) currentActive.classList.remove('active');
 
-    // Step 2: on next frame, animate height toward endH
     requestAnimationFrame(function () {
       authCard.style.height = endH + 'px';
     });
 
-    // Step 3: after half the transition, activate target so it fades in
     setTimeout(function () {
       targetForm.classList.add('active');
     }, 160);
 
-    // Step 4: once transition ends, clear inline height so the card can grow if content changes
     const done = function () {
       if (!morphing) return;
       morphing = false;
@@ -216,11 +177,9 @@
       if (e.propertyName === 'height') done();
     };
     authCard.addEventListener('transitionend', onEnd);
-    // Fallback in case transitionend never fires (e.g. zero-diff height)
     setTimeout(done, 500);
   }
 
-  // Existing showForm(name) → becomes a thin wrapper that calls morphToForm
   function showForm(name) {
     morphToForm(name, false);
   }
@@ -235,7 +194,6 @@
     notFoundPrompt.classList.add('show');
     if (loginUserInput) loginUserInput.classList.add('input-error');
     if (loginPassInput) loginPassInput.classList.add('input-error');
-    // Grow the card to fit the prompt
     requestAnimationFrame(function () { refreshCardHeight(); });
   }
   function hideNotFoundPrompt() {
@@ -246,16 +204,13 @@
     requestAnimationFrame(function () { refreshCardHeight(); });
   }
 
-  // Recompute the card's height to fit whichever form is active
   function refreshCardHeight() {
     if (!authCard) return;
     const active = document.querySelector('.auth-form.active');
     if (!active) return;
-    // Temporarily drop the fixed height so the form can grow naturally
     authCard.style.height = '';
     const targetH = active.scrollHeight;
     if (targetH > 0 && Math.abs(authCard.getBoundingClientRect().height - targetH) > 2) {
-      // Animate to the new height
       authCard.style.height = authCard.getBoundingClientRect().height + 'px';
       requestAnimationFrame(function () {
         authCard.style.height = targetH + 'px';
@@ -404,7 +359,7 @@
   });
 
   // ==================================================================
-  // SIGN UP
+  // SIGN UP  →  redirect to LOGIN (no auto-login)
   // ==================================================================
   if (signupForm) {
     signupForm.addEventListener('submit', function (e) {
@@ -443,14 +398,32 @@
       };
       saveUsers(users);
 
-      showMsg('ACCOUNT CREATED \u00B7 LOGGING IN\u2026', 'success');
+      // Clear signup fields
+      if (usernameEl) usernameEl.value = '';
+      if (passEl)     passEl.value = '';
+      if (pass2El)    pass2El.value = '';
+      if (emailInput) emailInput.value = '';
       resetEmailStatus();
-      setTimeout(function () { setSession(lowerUser); startGame(username); }, 700);
+
+      showMsg('ACCOUNT CREATED \u00B7 PLEASE LOG IN', 'success');
+
+      // Switch to LOGIN after a short delay, pre-fill username, require password
+      setTimeout(function () {
+        morphToForm('login', false);
+        if (loginUserInput) {
+          loginUserInput.value = username;
+          loginUserInput.focus();
+        }
+        if (loginPassInput) loginPassInput.value = '';
+        setTimeout(function () {
+          showMsg('ACCOUNT CREATED \u00B7 PLEASE LOG IN', 'success');
+        }, 420);
+      }, 700);
     });
   }
 
   // ==================================================================
-  // LOGIN
+  // LOGIN  (required to enter the game)
   // ==================================================================
   if (loginForm) {
     loginForm.addEventListener('submit', function (e) {
@@ -809,7 +782,6 @@
     }
   })();
 
-  // Expose for debugging / external triggers
   window.DarkOrbitAuth = {
     showForm: showForm,
     showMsg: showMsg,
