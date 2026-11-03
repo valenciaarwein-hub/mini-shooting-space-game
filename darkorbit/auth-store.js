@@ -1,234 +1,619 @@
-/* ====================================================================
-   auth-store.js  —  DARK ORBIT account storage & credential checker
-   --------------------------------------------------------------------
-   Handles ONLY:
-     • saving accounts to localStorage
-     • looking accounts up (by username OR email)
-     • verifying passwords
-     • checking if a username / email already exists
-     • creating a new account
-   Does NOT touch the DOM, forms, or the game.
-   ==================================================================== */
+// ====================================================================
+// DARK ORBIT · AUTH SYSTEM
+// Handles: signup, login, social login, forgot password, OTP, reset,
+// logout, session restore, and starting the game.
+// ====================================================================
+(function () {
+  'use strict';
 
-(function (global) {
-    'use strict';
+  // ---------- storage keys ----------
+  const USERS_KEY   = 'darkorbit_users';
+  const SESSION_KEY = 'darkorbit_session';
+  const RESET_KEY   = 'darkorbit_reset';
 
-    const USERS_KEY = 'darkorbit_users';
+  // ---------- storage helpers ----------
+  function loadUsers() {
+    try { return JSON.parse(localStorage.getItem(USERS_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function saveUsers(users) { localStorage.setItem(USERS_KEY, JSON.stringify(users)); }
 
-    /* ---------- low-level storage ---------- */
-
-    function loadUsers() {
-        try {
-            return JSON.parse(localStorage.getItem(USERS_KEY)) || {};
-        } catch (e) {
-            return {};
-        }
+  function hashPassword(pw) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < pw.length; i++) {
+      h ^= pw.charCodeAt(i);
+      h = (h * 0x01000193) >>> 0;
     }
+    return h.toString(16).padStart(8, '0');
+  }
+  function generateId() {
+    return 'u_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  }
+  function setSession(username) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ username, ts: Date.now() }));
+  }
+  function getSession() {
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY)); }
+    catch (e) { return null; }
+  }
+  function clearSession() { localStorage.removeItem(SESSION_KEY); }
 
-    function saveUsers(users) {
-        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  function isValidEmailFormat(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+  function isEmailRegistered(email) {
+    const users = loadUsers();
+    const lower = email.toLowerCase();
+    for (const k in users) {
+      if (users[k].email && users[k].email.toLowerCase() === lower) return true;
     }
+    return false;
+  }
 
-    /* ---------- password hashing (FNV-1a, same as original) ---------- */
+  // ---------- UI refs ----------
+  const authOverlay     = document.getElementById('authOverlay');
+  const authMsg         = document.getElementById('authMsg');
+  const authTabs        = document.getElementById('authTabs');
+  const loginForm       = document.getElementById('loginForm');
+  const signupForm      = document.getElementById('signupForm');
+  const forgotForm      = document.getElementById('forgotForm');
+  const otpForm         = document.getElementById('otpForm');
+  const resetForm       = document.getElementById('resetForm');
+  const socialBlock     = document.getElementById('socialBlock');
+  const tabs            = document.querySelectorAll('.auth-tab');
+  const userBar         = document.getElementById('userBar');
+  const userNameEl      = document.getElementById('userName');
+  const avatarInitial   = document.getElementById('avatarInitial');
+  const gameWrapper     = document.getElementById('gameWrapper');
+  const gameInfo        = document.getElementById('gameInfo');
+  const otpToast        = document.getElementById('otpToast');
+  const toastCode       = document.getElementById('toastCode');
+  const toastClose      = document.getElementById('toastClose');
+  const emailInput      = document.getElementById('signupEmail');
+  const emailStatus     = document.getElementById('emailStatus');
+  const emailIcon       = document.getElementById('emailIcon');
+  const signupBtn       = document.getElementById('signupBtn');
+  const loginUserInput  = document.getElementById('loginUser');
+  const loginPassInput  = document.getElementById('loginPass');
+  const notFoundPrompt  = document.getElementById('notFoundPrompt');
+  const notFoundText    = document.getElementById('notFoundText');
+  const gotoSignupBtn   = document.getElementById('gotoSignupBtn');
 
-    function hashPassword(pw) {
-        let h = 0x811c9dc5;
-        for (let i = 0; i < pw.length; i++) {
-            h ^= pw.charCodeAt(i);
-            h = (h * 0x01000193) >>> 0;
-        }
-        return h.toString(16).padStart(8, '0');
+  // ---------- account-not-found prompt ----------
+  function showNotFoundPrompt(message) {
+    notFoundText.textContent = message ||
+      'This account is not yet registered. Please sign up first to create an account.';
+    notFoundPrompt.classList.remove('show');
+    void notFoundPrompt.offsetWidth; // restart animation
+    notFoundPrompt.classList.add('show');
+    loginUserInput.classList.add('input-error');
+    loginPassInput.classList.add('input-error');
+  }
+  function hideNotFoundPrompt() {
+    notFoundPrompt.classList.remove('show');
+    loginUserInput.classList.remove('input-error');
+    loginPassInput.classList.remove('input-error');
+  }
+  loginUserInput.addEventListener('input', hideNotFoundPrompt);
+  loginPassInput.addEventListener('input', hideNotFoundPrompt);
+
+  gotoSignupBtn.addEventListener('click', () => {
+    const typed = loginUserInput.value.trim();
+    showForm('signup');
+    if (typed && isValidEmailFormat(typed)) {
+      document.getElementById('signupEmail').value = typed;
+      emailInput.dispatchEvent(new Event('input'));
+    } else if (typed) {
+      document.getElementById('signupUser').value = typed;
     }
+    setTimeout(() => document.getElementById('signupUser').focus(), 50);
+  });
 
-    function generateId() {
-        return 'u_' + Date.now().toString(36) + '_' +
-               Math.random().toString(36).slice(2, 8);
+  // ---------- form switching ----------
+  function showForm(name) {
+    [loginForm, signupForm, forgotForm, otpForm, resetForm]
+      .forEach(f => f.classList.remove('active'));
+
+    ({ login: loginForm, signup: signupForm, forgot: forgotForm,
+       otp: otpForm, reset: resetForm })[name].classList.add('active');
+
+    authTabs.style.display   = (name === 'login' || name === 'signup') ? 'flex'  : 'none';
+    socialBlock.style.display = (name === 'login' || name === 'signup') ? 'block' : 'none';
+
+    tabs.forEach(t => {
+      const isActive = t.dataset.tab === name;
+      t.classList.toggle('active', isActive);
+      t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+
+    if (name !== 'signup') clearEmailFeedback();
+    if (name !== 'login')  hideNotFoundPrompt();
+    showMsg('');
+  }
+  tabs.forEach(tab => tab.addEventListener('click', () => showForm(tab.dataset.tab)));
+  document.querySelectorAll('[data-back]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      stopResendCountdown();
+      clearResetState();
+      showForm('login');
+    });
+  });
+
+  // ---------- eye toggle ----------
+  document.querySelectorAll('.eye-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById(btn.getAttribute('data-target'));
+      if (!input) return;
+      const isHidden = input.type === 'password';
+      input.type = isHidden ? 'text' : 'password';
+      btn.classList.toggle('showing', isHidden);
+      input.focus();
+    });
+  });
+
+  // ---------- messages ----------
+  function showMsg(text, type) {
+    authMsg.textContent = text;
+    authMsg.className = 'auth-msg ' + (type || '');
+    if (text) {
+      clearTimeout(showMsg._t);
+      showMsg._t = setTimeout(() => {
+        if (authMsg.textContent === text) {
+          authMsg.textContent = '';
+          authMsg.className = 'auth-msg';
+        }
+      }, 3500);
     }
+  }
 
-    /* ---------- validation helpers ---------- */
+  // ---------- email availability UI ----------
+  let emailCheckTimer = null;
+  let emailAvailable  = false;
 
-    function isValidEmailFormat(email) {
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  function resetEmailStatus() {
+    emailAvailable = false;
+    emailStatus.textContent = '';
+    emailStatus.className = 'field-status';
+    emailIcon.textContent = '';
+    emailIcon.className = 'email-icon';
+    emailInput.classList.remove('valid-email', 'invalid-email');
+    signupBtn.disabled = false;
+  }
+  function setEmailStatus(state, message) {
+    emailStatus.textContent = message || '';
+    emailStatus.className = 'field-status ' + (state || '');
+    emailIcon.className = 'email-icon ' + (state || '');
+    if (state === 'available') {
+      emailIcon.textContent = '✓';
+      emailInput.classList.add('valid-email');
+      emailInput.classList.remove('invalid-email');
+      emailAvailable = true;
+      signupBtn.disabled = false;
+    } else if (state === 'taken') {
+      emailIcon.textContent = '✗';
+      emailInput.classList.add('invalid-email');
+      emailInput.classList.remove('valid-email');
+      emailAvailable = false;
+      signupBtn.disabled = true;
+    } else if (state === 'checking') {
+      emailIcon.textContent = '⟳';
+      emailInput.classList.remove('valid-email', 'invalid-email');
+      emailAvailable = false;
+      signupBtn.disabled = true;
+    } else {
+      emailIcon.textContent = '';
+      emailInput.classList.remove('valid-email', 'invalid-email');
+      emailAvailable = false;
+      signupBtn.disabled = false;
     }
+  }
+  emailInput.addEventListener('input', () => {
+    const email = emailInput.value.trim();
+    clearTimeout(emailCheckTimer);
+    if (!email) { resetEmailStatus(); return; }
+    if (!isValidEmailFormat(email)) { setEmailStatus('taken', 'INVALID FORMAT'); return; }
+    setEmailStatus('checking', 'CHECKING…');
+    emailCheckTimer = setTimeout(() => {
+      if (isEmailRegistered(email)) setEmailStatus('taken', 'ALREADY REGISTERED');
+      else                          setEmailStatus('available', 'AVAILABLE');
+    }, 400);
+  });
+  function clearEmailFeedback() {
+    resetEmailStatus();
+    clearTimeout(emailCheckTimer);
+  }
 
-    function isUsernameTaken(username) {
-        const users = loadUsers();
-        return !!users[username.toLowerCase()];
+  // ---------- OTP toast ----------
+  let toastTimer = null;
+  function showOtpToast(code) {
+    toastCode.textContent = code;
+    otpToast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => otpToast.classList.remove('show'), 10000);
+  }
+  toastClose.addEventListener('click', () => otpToast.classList.remove('show'));
+
+  // ==================================================================
+  // SIGN UP
+  // ==================================================================
+  signupForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const username = document.getElementById('signupUser').value.trim();
+    const email    = emailInput.value.trim();
+    const pass     = document.getElementById('signupPass').value;
+    const pass2    = document.getElementById('signupPass2').value;
+
+    if (!username || !email || !pass) { showMsg('ALL FIELDS REQUIRED', 'error'); return; }
+    if (username.length < 3)          { showMsg('USERNAME MUST BE 3+ CHARACTERS', 'error'); return; }
+    if (!isValidEmailFormat(email))   { showMsg('INVALID EMAIL FORMAT', 'error'); return; }
+    if (isEmailRegistered(email)) {
+      showMsg('EMAIL ALREADY REGISTERED', 'error');
+      setEmailStatus('taken', 'ALREADY REGISTERED');
+      return;
     }
+    if (pass.length < 6)              { showMsg('PASSWORD MUST BE 6+ CHARACTERS', 'error'); return; }
+    if (pass !== pass2)               { showMsg('PASSWORDS DO NOT MATCH', 'error'); return; }
 
-    function isEmailRegistered(email) {
-        const users = loadUsers();
-        const lower = email.toLowerCase();
-        for (const k in users) {
-            if (users[k].email && users[k].email.toLowerCase() === lower) return true;
-        }
-        return false;
-    }
+    const users = loadUsers();
+    const lowerUser = username.toLowerCase();
+    if (users[lowerUser]) { showMsg('USERNAME ALREADY TAKEN', 'error'); return; }
 
-    /* ---------- lookup ---------- */
-
-    /**
-     * Find an account by username (primary key) or by email.
-     * @returns {{ key: string, account: object } | null}
-     */
-    function findAccount(identifier) {
-        if (!identifier) return null;
-        const users = loadUsers();
-        const lower = identifier.toLowerCase();
-
-        // 1. direct username key
-        if (users[lower]) {
-            return { key: lower, account: users[lower] };
-        }
-
-        // 2. fall back to email match
-        for (const k in users) {
-            const acc = users[k];
-            if (acc.email && acc.email.toLowerCase() === lower) {
-                return { key: k, account: acc };
-            }
-        }
-
-        return null;
-    }
-
-    /* ---------- public: create account ---------- */
-
-    /**
-     * Create a new local account.
-     * @returns {{ ok: true, key: string, account: object }
-     *          | { ok: false, code: string, message: string }}
-     */
-    function createAccount({ username, email, password }) {
-        if (!username || !email || !password) {
-            return { ok: false, code: 'MISSING_FIELDS', message: 'All fields are required.' };
-        }
-        if (username.length < 3) {
-            return { ok: false, code: 'USERNAME_SHORT', message: 'Username must be 3+ characters.' };
-        }
-        if (!isValidEmailFormat(email)) {
-            return { ok: false, code: 'EMAIL_INVALID', message: 'Invalid email format.' };
-        }
-        if (password.length < 6) {
-            return { ok: false, code: 'PASSWORD_SHORT', message: 'Password must be 6+ characters.' };
-        }
-        if (isUsernameTaken(username)) {
-            return { ok: false, code: 'USERNAME_TAKEN', message: 'Username already taken.' };
-        }
-        if (isEmailRegistered(email)) {
-            return { ok: false, code: 'EMAIL_TAKEN', message: 'Email already registered.' };
-        }
-
-        const users = loadUsers();
-        const lowerUser = username.toLowerCase();
-
-        const account = {
-            id: generateId(),
-            username,
-            email,
-            password: hashPassword(password),
-            provider: 'local',
-            createdAt: Date.now(),
-            stats: { highScore: 0, gamesPlayed: 0 }
-        };
-
-        users[lowerUser] = account;
-        saveUsers(users);
-
-        return { ok: true, key: lowerUser, account };
-    }
-
-    /* ---------- public: verify credentials ---------- */
-
-    /**
-     * Check a login attempt against stored accounts.
-     *
-     * Possible results:
-     *   { ok: true,  key, account }                    → ACCESS GRANTED
-     *   { ok: false, code: 'NOT_FOUND' }               → account does not exist
-     *   { ok: false, code: 'WRONG_PASSWORD' }          → exists but bad password
-     *   { ok: false, code: 'SOCIAL_PROVIDER', provider}→ must sign in via Google/FB
-     */
-    function verifyCredentials(identifier, password) {
-        const found = findAccount(identifier);
-
-        if (!found) {
-            return { ok: false, code: 'NOT_FOUND' };
-        }
-
-        const { key, account } = found;
-
-        if (account.provider && account.provider !== 'local') {
-            return { ok: false, code: 'SOCIAL_PROVIDER', provider: account.provider };
-        }
-
-        if (account.password !== hashPassword(password)) {
-            return { ok: false, code: 'WRONG_PASSWORD' };
-        }
-
-        return { ok: true, key, account };
-    }
-
-    /* ---------- public: update password (used by reset flow) ---------- */
-
-    function updatePassword(accountKey, newPassword) {
-        const users = loadUsers();
-        if (!users[accountKey]) return { ok: false, code: 'NOT_FOUND' };
-
-        users[accountKey].password = hashPassword(newPassword);
-        saveUsers(users);
-        return { ok: true };
-    }
-
-    /* ---------- public: social / provider account ---------- */
-
-    function createOrGetSocialAccount(provider, email, displayName) {
-        const users = loadUsers();
-
-        for (const k in users) {
-            if (users[k].email === email) {
-                return { ok: true, key: k, account: users[k] };
-            }
-        }
-
-        const key = `${provider}_${Date.now().toString(36)}`;
-        users[key] = {
-            id: generateId(),
-            username: displayName,
-            email,
-            password: null,
-            provider,
-            createdAt: Date.now(),
-            stats: { highScore: 0, gamesPlayed: 0 }
-        };
-        saveUsers(users);
-        return { ok: true, key, account: users[key] };
-    }
-
-    /* ---------- expose the API ---------- */
-
-    global.AuthStore = {
-        // storage
-        loadUsers,
-        saveUsers,
-
-        // hashing
-        hashPassword,
-        generateId,
-
-        // validation
-        isValidEmailFormat,
-        isUsernameTaken,
-        isEmailRegistered,
-
-        // lookup
-        findAccount,
-
-        // main operations
-        createAccount,
-        verifyCredentials,
-        updatePassword,
-        createOrGetSocialAccount
+    users[lowerUser] = {
+      id: generateId(),
+      username,
+      email,
+      password: hashPassword(pass),
+      provider: 'local',
+      createdAt: Date.now(),
+      stats: { highScore: 0, gamesPlayed: 0 }
     };
+    saveUsers(users);
 
-})(window);
+    showMsg('ACCOUNT CREATED · LOGGING IN…', 'success');
+    resetEmailStatus();
+    setTimeout(() => { setSession(lowerUser); startGame(username); }, 700);
+  });
+
+  // ==================================================================
+  // LOGIN
+  // ==================================================================
+  loginForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const userInput = loginUserInput.value.trim().toLowerCase();
+    const pass      = loginPassInput.value;
+    if (!userInput || !pass) { showMsg('ALL FIELDS REQUIRED', 'error'); return; }
+
+    const users = loadUsers();
+    let account    = users[userInput];
+    let accountKey = userInput;
+
+    if (!account) {
+      for (const k in users) {
+        if (users[k].email && users[k].email.toLowerCase() === userInput) {
+          account = users[k];
+          accountKey = k;
+          break;
+        }
+      }
+    }
+
+    if (!account) {
+      showMsg('ACCOUNT NOT FOUND', 'error');
+      showNotFoundPrompt(
+        `The account "${loginUserInput.value.trim()}" is not yet registered. ` +
+        `Please sign up first to create an account.`
+      );
+      return;
+    }
+    if (account.provider !== 'local') {
+      showMsg('USE ' + account.provider.toUpperCase() + ' TO SIGN IN', 'error');
+      return;
+    }
+    if (account.password !== hashPassword(pass)) {
+      showMsg('INCORRECT PASSWORD', 'error');
+      return;
+    }
+
+    showMsg('ACCESS GRANTED', 'success');
+    hideNotFoundPrompt();
+    const displayName = account.username;
+    setTimeout(() => { setSession(accountKey); startGame(displayName); }, 500);
+  });
+
+  // ==================================================================
+  // FORGOT PASSWORD + OTP
+  // ==================================================================
+  let resetCtx       = null;
+  let resendInterval = null;
+  const RESEND_SECONDS = 30;
+
+  document.getElementById('forgotLink').addEventListener('click', () => {
+    showForm('forgot');
+    document.getElementById('forgotUser').value = '';
+  });
+
+  forgotForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = document.getElementById('forgotUser').value.trim().toLowerCase();
+    if (!input) { showMsg('ENTER USERNAME OR EMAIL', 'error'); return; }
+
+    const users = loadUsers();
+    let accountKey = null, account = null;
+    if (users[input]) { accountKey = input; account = users[input]; }
+    else {
+      for (const k in users) {
+        if (users[k].email && users[k].email.toLowerCase() === input) {
+          accountKey = k; account = users[k]; break;
+        }
+      }
+    }
+    if (!account) {
+      showMsg('ACCOUNT NOT FOUND · PLEASE SIGN UP', 'error');
+      showNotFoundPrompt(
+        `The account "${input}" is not registered. ` +
+        `Please sign up first to create an account.`
+      );
+      return;
+    }
+    if (account.provider !== 'local') {
+      showMsg('THIS ACCOUNT USES ' + account.provider.toUpperCase() +
+              ' · NO PASSWORD TO RESET', 'error');
+      return;
+    }
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    resetCtx = {
+      key: accountKey, code,
+      expires: Date.now() + 5 * 60 * 1000,
+      displayName: account.username,
+      email: account.email
+    };
+    localStorage.setItem(RESET_KEY, JSON.stringify(resetCtx));
+    document.getElementById('otpTarget').textContent = account.email;
+    showMsg('OTP SENT TO ' + account.email, 'success');
+    showOtpToast(code);
+    startResendCountdown();
+    showForm('otp');
+    clearOtpInputs();
+    document.querySelector('[data-otp="0"]').focus();
+  });
+
+  function startResendCountdown() {
+    stopResendCountdown();
+    let remaining = RESEND_SECONDS;
+    const resendBtn = document.getElementById('resendOtp');
+    if (!resendBtn) return;
+    resendBtn.disabled = true;
+
+    let countEl = document.getElementById('resendCount');
+    if (!countEl) {
+      resendBtn.innerHTML = `RESEND OTP (<span id="resendCount">${remaining}</span>s)`;
+      countEl = document.getElementById('resendCount');
+    } else {
+      countEl.textContent = remaining;
+    }
+
+    resendInterval = setInterval(() => {
+      remaining--;
+      const el = document.getElementById('resendCount');
+      if (el) el.textContent = remaining;
+      if (remaining <= 0) {
+        stopResendCountdown();
+        const btn = document.getElementById('resendOtp');
+        if (btn) { btn.disabled = false; btn.innerHTML = 'RESEND OTP'; }
+      }
+    }, 1000);
+  }
+  function stopResendCountdown() {
+    if (resendInterval) { clearInterval(resendInterval); resendInterval = null; }
+    const resendBtn = document.getElementById('resendOtp');
+    if (resendBtn) resendBtn.disabled = false;
+  }
+
+  document.getElementById('resendOtp').addEventListener('click', () => {
+    if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); return; }
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    resetCtx.code = code;
+    resetCtx.expires = Date.now() + 5 * 60 * 1000;
+    localStorage.setItem(RESET_KEY, JSON.stringify(resetCtx));
+    showMsg('NEW OTP SENT', 'success');
+    showOtpToast(code);
+    clearOtpInputs();
+    document.querySelector('[data-otp="0"]').focus();
+    startResendCountdown();
+  });
+
+  // ---------- OTP inputs ----------
+  const otpInputs = document.querySelectorAll('[data-otp]');
+  otpInputs.forEach((input, idx) => {
+    input.addEventListener('input', (e) => {
+      const v = e.target.value.replace(/\D/g, '');
+      e.target.value = v.slice(0, 1);
+      e.target.classList.toggle('filled', !!e.target.value);
+      if (e.target.value && idx < otpInputs.length - 1) otpInputs[idx + 1].focus();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && !e.target.value && idx > 0) otpInputs[idx - 1].focus();
+      if (e.key === 'ArrowLeft'  && idx > 0)                    otpInputs[idx - 1].focus();
+      if (e.key === 'ArrowRight' && idx < otpInputs.length - 1) otpInputs[idx + 1].focus();
+    });
+    input.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData)
+        .getData('text').replace(/\D/g, '').slice(0, 6);
+      for (let i = 0; i < otpInputs.length; i++) {
+        otpInputs[i].value = text[i] || '';
+        otpInputs[i].classList.toggle('filled', !!text[i]);
+      }
+      otpInputs[Math.min(text.length, otpInputs.length - 1)].focus();
+    });
+  });
+  function clearOtpInputs() {
+    otpInputs.forEach(i => { i.value = ''; i.classList.remove('filled'); });
+  }
+  function getOtpValue() {
+    return Array.from(otpInputs).map(i => i.value).join('');
+  }
+
+  otpForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); showForm('forgot'); return; }
+    const entered = getOtpValue();
+    if (entered.length !== 6)          { showMsg('ENTER ALL 6 DIGITS', 'error'); return; }
+    if (Date.now() > resetCtx.expires) { showMsg('OTP EXPIRED · REQUEST A NEW ONE', 'error'); return; }
+    if (entered !== resetCtx.code)     { showMsg('INVALID OTP', 'error'); return; }
+
+    showMsg('IDENTITY VERIFIED', 'success');
+    stopResendCountdown();
+    setTimeout(() => {
+      showForm('reset');
+      document.getElementById('resetPass').value  = '';
+      document.getElementById('resetPass2').value = '';
+      document.getElementById('resetPass').focus();
+    }, 400);
+  });
+
+  resetForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); showForm('forgot'); return; }
+    const pass  = document.getElementById('resetPass').value;
+    const pass2 = document.getElementById('resetPass2').value;
+    if (pass.length < 6) { showMsg('PASSWORD MUST BE 6+ CHARACTERS', 'error'); return; }
+    if (pass !== pass2)  { showMsg('PASSWORDS DO NOT MATCH', 'error'); return; }
+
+    const users   = loadUsers();
+    const account = users[resetCtx.key];
+    if (!account) { showMsg('ACCOUNT NO LONGER EXISTS', 'error'); showForm('login'); return; }
+
+    account.password = hashPassword(pass);
+    saveUsers(users);
+    clearResetState();
+    showMsg('PASSWORD UPDATED · PLEASE LOGIN', 'success');
+    setTimeout(() => showForm('login'), 800);
+  });
+
+  function clearResetState() {
+    resetCtx = null;
+    localStorage.removeItem(RESET_KEY);
+    stopResendCountdown();
+    clearOtpInputs();
+  }
+
+  // ---------- restore pending reset on reload ----------
+  (function restoreReset() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(RESET_KEY));
+      if (saved && saved.expires > Date.now()) {
+        resetCtx = saved;
+        document.getElementById('otpTarget').textContent = saved.email || 'your account';
+        showForm('otp');
+        startResendCountdown();
+      } else if (saved) {
+        localStorage.removeItem(RESET_KEY);
+      }
+    } catch (e) {}
+  })();
+
+  // ==================================================================
+  // SOCIAL LOGIN
+  // ==================================================================
+  function socialLogin(provider) {
+    const providerName = provider === 'google' ? 'Google' : 'Facebook';
+    const fakeEmail = `${provider}_pilot_${Math.floor(Math.random() * 9000 + 1000)}@${provider}.com`;
+    const fakeName  = `${providerName} Pilot`;
+
+    const users = loadUsers();
+    let existingKey = null;
+    for (const k in users) {
+      if (users[k].email === fakeEmail) { existingKey = k; break; }
+    }
+
+    let displayName, sessionKey;
+    if (existingKey) {
+      displayName = users[existingKey].username;
+      sessionKey  = existingKey;
+      showMsg(`WELCOME BACK, ${displayName.toUpperCase()}`, 'success');
+    } else {
+      const key = `${provider}_${Date.now().toString(36)}`;
+      users[key] = {
+        id: generateId(),
+        username: fakeName,
+        email: fakeEmail,
+        password: null,
+        provider,
+        createdAt: Date.now(),
+        stats: { highScore: 0, gamesPlayed: 0 }
+      };
+      saveUsers(users);
+      displayName = fakeName;
+      sessionKey  = key;
+      showMsg(`SIGNED IN WITH ${providerName.toUpperCase()}`, 'success');
+    }
+    setTimeout(() => { setSession(sessionKey); startGame(displayName); }, 700);
+  }
+  document.getElementById('googleBtn').addEventListener('click', () => socialLogin('google'));
+  document.getElementById('facebookBtn').addEventListener('click', () => socialLogin('facebook'));
+
+  // ==================================================================
+  // LOGOUT
+  // ==================================================================
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    clearSession();
+    clearResetState();
+    clearEmailFeedback();
+    hideNotFoundPrompt();
+
+    userBar.classList.remove('visible');
+    gameWrapper.classList.remove('visible');
+    gameInfo.classList.add('hidden');
+    authOverlay.classList.remove('hidden');
+
+    showForm('login');
+    showMsg('LOGGED OUT', 'success');
+    window.__gameRunning = false;
+
+    document.querySelectorAll('.eye-toggle.showing').forEach(btn => {
+      const input = document.getElementById(btn.getAttribute('data-target'));
+      if (input) input.type = 'password';
+      btn.classList.remove('showing');
+    });
+  });
+
+  // ==================================================================
+  // START GAME (called after login / signup / social / session restore)
+  // ==================================================================
+  function startGame(displayName) {
+    authOverlay.classList.add('hidden');
+    userBar.classList.add('visible');
+    gameWrapper.classList.add('visible');
+    gameInfo.classList.remove('hidden');
+
+    userNameEl.textContent      = displayName;
+    avatarInitial.textContent   = displayName.charAt(0).toUpperCase();
+
+    if (typeof window.__initGame === 'function') window.__initGame();
+    window.__gameRunning = true;
+  }
+
+  // ==================================================================
+  // AUTO-RESTORE SESSION
+  // ==================================================================
+  (function restoreSession() {
+    const session = getSession();
+    if (session && session.username) {
+      const users   = loadUsers();
+      const account = users[session.username];
+      if (account) setTimeout(() => startGame(account.username), 100);
+      else         clearSession();
+    }
+  })();
+
+  // expose if other scripts need them (optional)
+  window.DarkOrbitAuth = {
+    showForm,
+    showMsg,
+    startGame,
+    loadUsers,
+    saveUsers
+  };
+})();
