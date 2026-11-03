@@ -1,12 +1,154 @@
 // ====================================================================
-// DARK ORBIT · GAME ENGINE ONLY
-// All auth lives in auth.js.
-// The auth layer calls window.__initGame() after a successful login
-// and toggles window.__gameRunning when logged in / logged out.
+// DARK ORBIT · GAME ENGINE + WARP TRANSITION
+// Auth lives in auth.js. This file owns the canvas game loop and the
+// fullscreen warp animation used when switching login ↔ signup.
 // ====================================================================
 (function () {
   'use strict';
 
+  // ==================================================================
+  // WARP TRANSITION (login ↔ signup)
+  // Exposes window.__warpTransition(callback) so auth.js can play the
+  // effect and switch forms mid-animation.
+  // ==================================================================
+  (function initWarp() {
+    const warpCanvas = document.createElement('canvas');
+    warpCanvas.id = 'warpCanvas';
+    warpCanvas.style.cssText = [
+      'position: fixed',
+      'inset: 0',
+      'pointer-events: none',
+      'z-index: 300',
+      'opacity: 0',
+      'transition: opacity 0.15s ease'
+    ].join(';');
+    document.body.appendChild(warpCanvas);
+
+    const wctx = warpCanvas.getContext('2d');
+    let warpRaf = null;
+    let warpRunning = false;
+    let warpParticles = [];
+
+    function sizeWarpCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      warpCanvas.width  = window.innerWidth  * dpr;
+      warpCanvas.height = window.innerHeight * dpr;
+      warpCanvas.style.width  = window.innerWidth  + 'px';
+      warpCanvas.style.height = window.innerHeight + 'px';
+      wctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    sizeWarpCanvas();
+    window.addEventListener('resize', sizeWarpCanvas);
+
+    const WARP_DURATION = 900;
+    const WARP_MIDPOINT = 450;
+
+    function spawnWarpParticles(strength) {
+      const cx = window.innerWidth  / 2;
+      const cy = window.innerHeight / 2;
+      const count = Math.floor(60 * strength);
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist  = 40 + Math.random() * 200;
+        const speed = 6 + Math.random() * 10;
+        warpParticles.push({
+          x: cx + Math.cos(angle) * dist,
+          y: cy + Math.sin(angle) * dist,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          len: 20 + Math.random() * 60,
+          hue: 190 + Math.random() * 40,
+          life: 1.0,
+          decay: 0.02 + Math.random() * 0.02
+        });
+      }
+    }
+
+    function drawWarpFrame() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      wctx.clearRect(0, 0, w, h);
+
+      const cx = w / 2;
+      const cy = h / 2;
+
+      const grad = wctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.7);
+      grad.addColorStop(0,   'rgba(0, 170, 255, 0.18)');
+      grad.addColorStop(0.4, 'rgba(0, 100, 200, 0.06)');
+      grad.addColorStop(1,   'rgba(0, 0, 0, 0)');
+      wctx.fillStyle = grad;
+      wctx.fillRect(0, 0, w, h);
+
+      for (let i = warpParticles.length - 1; i >= 0; i--) {
+        const p = warpParticles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 1.02;
+        p.vy *= 1.02;
+        p.life -= p.decay;
+
+        if (p.life <= 0) { warpParticles.splice(i, 1); continue; }
+
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        const d  = Math.hypot(dx, dy) || 1;
+        const ux = dx / d;
+        const uy = dy / d;
+
+        const alpha = Math.min(1, p.life) * 0.9;
+        wctx.strokeStyle = 'hsla(' + p.hue + ', 100%, 70%, ' + alpha + ')';
+        wctx.lineWidth = 1 + Math.random() * 1.5;
+        wctx.shadowBlur = 12;
+        wctx.shadowColor = 'hsla(' + p.hue + ', 100%, 60%, ' + alpha + ')';
+        wctx.beginPath();
+        wctx.moveTo(p.x, p.y);
+        wctx.lineTo(p.x - ux * p.len, p.y - uy * p.len);
+        wctx.stroke();
+      }
+      wctx.shadowBlur = 0;
+    }
+
+    function warpLoop() {
+      if (!warpRunning) return;
+      drawWarpFrame();
+      warpRaf = requestAnimationFrame(warpLoop);
+    }
+
+    window.__warpTransition = function (midCallback) {
+      if (warpRunning) {
+        if (typeof midCallback === 'function') midCallback();
+        return;
+      }
+
+      warpRunning = true;
+      warpParticles = [];
+      warpCanvas.style.opacity = '1';
+
+      spawnWarpParticles(1.0);
+      warpLoop();
+
+      setTimeout(function () {
+        if (typeof midCallback === 'function') midCallback();
+        spawnWarpParticles(0.8);
+      }, WARP_MIDPOINT);
+
+      setTimeout(function () {
+        warpCanvas.style.opacity = '0';
+        spawnWarpParticles(0.4);
+      }, WARP_DURATION - 150);
+
+      setTimeout(function () {
+        warpRunning = false;
+        if (warpRaf) { cancelAnimationFrame(warpRaf); warpRaf = null; }
+        warpParticles = [];
+        wctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      }, WARP_DURATION);
+    };
+  })();
+
+  // ==================================================================
+  // GAME ENGINE
+  // ==================================================================
   const canvas = document.getElementById('gameCanvas');
   const ctx    = canvas.getContext('2d');
   let started  = false;
@@ -56,7 +198,6 @@
   let bullets = [], enemies = [], particles = [], pickups = [];
   const keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, Space: false };
 
-  // ---------- init / reset ----------
   function initStars() {
     starField = [];
     for (let i = 0; i < 180; i++) {
@@ -84,18 +225,20 @@
     }
   }
   function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
-  function spawnParticles(x, y, count, color, speedBase = 2, sizeBase = 1.8) {
+  function spawnParticles(x, y, count, color, speedBase, sizeBase) {
+    if (speedBase === undefined) speedBase = 2;
+    if (sizeBase  === undefined) sizeBase  = 1.8;
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = speedBase * (0.5 + Math.random() * 0.8);
       particles.push({
-        x, y,
+        x: x, y: y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         life: 1.0,
         decay: 0.012 + Math.random() * 0.02,
         size: sizeBase * (0.6 + Math.random() * 0.8),
-        color
+        color: color
       });
     }
   }
@@ -120,8 +263,6 @@
     enemySpawnTimer = 0; enemySpawnRate = 35; pickupSpawnTimer = 0;
     initStars(); initNebula();
   }
-
-  // ---------- spawning ----------
   function spawnEnemy() {
     const w = 26 + Math.floor(Math.random() * 14);
     const h = 22 + Math.floor(Math.random() * 10);
@@ -130,14 +271,14 @@
     const speedY = 1.4 + Math.random() * 1.8;
     const speedX = (Math.random() - 0.5) * 1.2;
     const hp = 1 + Math.floor(Math.random() * 2);
-    enemies.push({ x, y, w, h, vx: speedX, vy: speedY, hp, maxHp: hp, color: COLORS.enemy, coreColor: COLORS.enemyCore, hitFlash: 0 });
+    enemies.push({ x: x, y: y, w: w, h: h, vx: speedX, vy: speedY, hp: hp, maxHp: hp, color: COLORS.enemy, coreColor: COLORS.enemyCore, hitFlash: 0 });
   }
   function spawnPickup(defKey) {
     const def = PICKUP_DEFS[defKey];
     if (!def) return;
     const size = 26;
     pickups.push({
-      def,
+      def: def,
       x: Math.random() * (canvas.width - size - 40) + 20,
       y: -size, w: size, h: size,
       vy: 1.5 + Math.random() * 0.8,
@@ -154,8 +295,6 @@
       return rapids[Math.floor(Math.random() * rapids.length)];
     }
   }
-
-  // ---------- weapons ----------
   function getWeaponStats() {
     const base  = WEAPONS[player.weapon];
     const rapid = getRapidTier();
@@ -190,10 +329,10 @@
       bullets.push({
         x: player.x + Math.sin(angle) * 4,
         y: player.y - 18,
-        w: bulletW, h: bulletH, vx, vy,
+        w: bulletW, h: bulletH, vx: vx, vy: vy,
         damage: stats.damage, pierce: stats.pierce, hits: [],
         life: 1.0, color: stats.color, glowColor: stats.glowColor,
-        angle, explosive: stats.explosive,
+        angle: angle, explosive: stats.explosive,
         blastRadius: stats.blastRadius, blastDamage: stats.blastDamage,
         blastFalloff: stats.blastFalloff, trailTimer: 0
       });
@@ -221,7 +360,7 @@
         }
       }
     }
-    explosions.push({ x, y, radius: 8, maxRadius: radius, life: 1.0, decay: 0.055, color: bullet.glowColor });
+    explosions.push({ x: x, y: y, radius: 8, maxRadius: radius, life: 1.0, decay: 0.055, color: bullet.glowColor });
     spawnParticles(x, y, 30, '#ffae5c', 4.2, 2.8);
     spawnParticles(x, y, 18, '#ff5500', 3.0, 2.2);
     spawnParticles(x, y, 12, '#ffffff', 5.0, 1.6);
@@ -235,11 +374,8 @@
       setRapidTier(def.value);
     }
   }
-
-  // ---------- update ----------
   function update() {
     if (gameOver) return;
-
     let dx = 0, dy = 0;
     if (keys.ArrowLeft)  dx -= 1;
     if (keys.ArrowRight) dx += 1;
@@ -253,16 +389,15 @@
       player.y = clamp(player.y + dy, 40, canvas.height - 30);
     }
     if (keys.Space) shootBullet();
-    if (player.cooldown    > 0) player.cooldown--;
-    if (player.invincible  > 0) player.invincible--;
-    if (player.rapidTimer  > 0) {
+    if (player.cooldown   > 0) player.cooldown--;
+    if (player.invincible > 0) player.invincible--;
+    if (player.rapidTimer > 0) {
       player.rapidTimer--;
       if (player.rapidTimer === 0 && player.rapidTier !== 'low') {
         player.rapidTier = 'low';
         spawnParticles(player.x, player.y, 12, '#4a7a9a', 2.0, 1.6);
       }
     }
-
     enemySpawnTimer++;
     if (enemySpawnTimer >= enemySpawnRate) {
       enemySpawnTimer = 0;
@@ -274,7 +409,6 @@
       pickupSpawnTimer = 0;
       spawnPickup(chooseRandomPickup());
     }
-
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
       b.x += b.vx; b.y += b.vy; b.life -= 0.01;
@@ -296,7 +430,6 @@
         bullets.splice(i, 1);
       }
     }
-
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
       e.x += e.vx; e.y += e.vy;
@@ -319,7 +452,7 @@
       for (let j = bullets.length - 1; j >= 0; j--) {
         const b = bullets[j];
         if (b.x + b.w > e.x && b.x < e.x + e.w && b.y + b.h > e.y && b.y < e.y + e.h) {
-          if (b.hits && b.hits.includes(e)) continue;
+          if (b.hits && b.hits.indexOf(e) !== -1) continue;
           if (b.explosive) { detonate(b.x + b.w / 2, b.y + b.h / 2, b); bullets.splice(j, 1); break; }
           e.hp -= b.damage; e.hitFlash = 6;
           spawnParticles(b.x, b.y, 8, b.glowColor, 1.8, 1.6);
@@ -335,7 +468,6 @@
         }
       }
     }
-
     for (let i = pickups.length - 1; i >= 0; i--) {
       const p = pickups[i];
       p.x += p.vx; p.y += p.vy; p.rotation += 0.03; p.pulse += 0.1;
@@ -372,14 +504,14 @@
     }
   }
 
-  // ---------- draw ----------
   function draw() {
     ctx.fillStyle = COLORS.bg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     for (let n of nebulaClouds) {
       const grad = ctx.createRadialGradient(n.x, n.y, 20, n.x, n.y, n.radius);
-      grad.addColorStop(0, `rgba(20, 70, 100, ${n.alpha})`);
-      grad.addColorStop(0.7, `rgba(8, 25, 45, ${n.alpha * 0.4})`);
+      grad.addColorStop(0, 'rgba(20, 70, 100, ' + n.alpha + ')');
+      grad.addColorStop(0.7, 'rgba(8, 25, 45, ' + (n.alpha * 0.4) + ')');
       grad.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = grad;
       ctx.beginPath(); ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2); ctx.fill();
@@ -520,7 +652,7 @@
     const rapidY = 30;
     ctx.shadowBlur = 14; ctx.shadowColor = rt.glow; ctx.fillStyle = rt.color;
     ctx.font = 'bold 16px "Courier New", monospace'; ctx.textAlign = 'center';
-    ctx.fillText(`⚡ ${rt.name} RAPID ⚡ `, canvas.width / 2, rapidY + 6);
+    ctx.fillText('\u26A1 ' + rt.name + ' RAPID \u26A1 ', canvas.width / 2, rapidY + 6);
     ctx.textAlign = 'left';
     if (player.rapidTimer > 0) {
       const pct = player.rapidTimer / 600;
@@ -544,11 +676,11 @@
       ctx.strokeRect(xPos, hudY, 90, 36);
       ctx.fillStyle = isActive ? w.color : '#4a7a9a';
       ctx.font = 'bold 12px "Courier New", monospace'; ctx.textAlign = 'center';
-      ctx.fillText(`[${idx + 1}] ${w.name}`, xPos + 45, hudY + 16);
+      ctx.fillText('[' + (idx + 1) + '] ' + w.name, xPos + 45, hudY + 16);
       ctx.font = '8px "Courier New", monospace';
       ctx.fillStyle = isActive ? '#8fc4e0' : '#3a6a8a';
-      if (w.explosive) ctx.fillText(`DMG ${w.damage} · BLAST ${w.blastRadius}`, xPos + 45, hudY + 30);
-      else             ctx.fillText(`DMG ${w.damage.toFixed(1)} · RATE ${w.fireRate}`, xPos + 45, hudY + 30);
+      if (w.explosive) ctx.fillText('DMG ' + w.damage + ' \u00B7 BLAST ' + w.blastRadius, xPos + 45, hudY + 30);
+      else             ctx.fillText('DMG ' + w.damage.toFixed(1) + ' \u00B7 RATE ' + w.fireRate, xPos + 45, hudY + 30);
       ctx.textAlign = 'left';
     });
 
@@ -559,11 +691,11 @@
       ctx.strokeRect(panelX, hudY - 6, 210, 44);
       ctx.fillStyle = wStats.glowColor;
       ctx.font = 'bold 12px "Courier New", monospace';
-      ctx.fillText(`${wStats.name} · ${wStats.rapidName}`, panelX + 8, hudY + 10);
+      ctx.fillText(wStats.name + ' \u00B7 ' + wStats.rapidName, panelX + 8, hudY + 10);
       ctx.fillStyle = '#9fc8e0';
       ctx.font = '10px "Courier New", monospace';
-      if (wStats.explosive) ctx.fillText(`DMG ${wStats.damage.toFixed(1)} · BLAST ${wStats.blastRadius} · AoE ${wStats.blastDamage}`, panelX + 8, hudY + 26);
-      else                 ctx.fillText(`DMG ${wStats.damage.toFixed(1)} · RATE ${wStats.fireRate} · PIERCE ${wStats.pierce}`, panelX + 8, hudY + 26);
+      if (wStats.explosive) ctx.fillText('DMG ' + wStats.damage.toFixed(1) + ' \u00B7 BLAST ' + wStats.blastRadius + ' \u00B7 AoE ' + wStats.blastDamage, panelX + 8, hudY + 26);
+      else                 ctx.fillText('DMG ' + wStats.damage.toFixed(1) + ' \u00B7 RATE ' + wStats.fireRate + ' \u00B7 PIERCE ' + wStats.pierce, panelX + 8, hudY + 26);
     }
 
     if (gameOver) {
@@ -579,7 +711,6 @@
     ctx.shadowBlur = 0;
   }
 
-  // ---------- roundRect polyfill (only if browser lacks it) ----------
   if (typeof CanvasRenderingContext2D.prototype.roundRect !== 'function') {
     CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
       if (w < 2 * r) r = w / 2;
@@ -597,7 +728,6 @@
     };
   }
 
-  // ---------- game loop ----------
   function gameLoop() {
     if (!window.__gameRunning) { rafId = requestAnimationFrame(gameLoop); return; }
     if (!gameOver) update();
@@ -606,7 +736,6 @@
     rafId = requestAnimationFrame(gameLoop);
   }
 
-  // ---------- public entry point used by auth.js ----------
   window.__initGame = function () {
     resetGame();
     if (!started) {
@@ -617,10 +746,9 @@
     }
   };
 
-  // ---------- keyboard ----------
-  window.addEventListener('keydown', (e) => {
+  window.addEventListener('keydown', function (e) {
     if (!window.__gameRunning) return;
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) e.preventDefault();
+    if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].indexOf(e.key) !== -1) e.preventDefault();
     if (e.key === 'ArrowLeft')  keys.ArrowLeft  = true;
     if (e.key === 'ArrowRight') keys.ArrowRight = true;
     if (e.key === 'ArrowUp')    keys.ArrowUp    = true;
@@ -632,7 +760,7 @@
     if (e.key === '4') player.weapon = 'bazuka';
     if (e.key === 'r' || e.key === 'R') resetGame();
   });
-  window.addEventListener('keyup', (e) => {
+  window.addEventListener('keyup', function (e) {
     if (!window.__gameRunning) return;
     if (e.key === 'ArrowLeft')  keys.ArrowLeft  = false;
     if (e.key === 'ArrowRight') keys.ArrowRight = false;
