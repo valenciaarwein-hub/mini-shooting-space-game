@@ -33,7 +33,6 @@ body {
   position: relative;
   max-height: 92vh;
   overflow-y: auto;
-  transition: transform 0.25s ease, filter 0.25s ease;
 }
 .auth-card::before {
   content: '';
@@ -42,10 +41,6 @@ body {
   height: 2px;
   background: linear-gradient(90deg, transparent, #00c8ff, transparent);
   border-radius: 2px;
-}
-.auth-card.warping {
-  transform: scale(0.96);
-  filter: blur(2px) brightness(1.4);
 }
 
 .auth-title {
@@ -386,11 +381,6 @@ body {
   font-family: inherit;
 }
 #otpToast .toast-close:hover { color: #ff6b8f; }
-
-/* ---------- WARP OVERLAY ---------- */
-#warpCanvas {
-  will-change: opacity;
-}
 
 /* ---------- USER BAR ---------- */
 #userBar {
