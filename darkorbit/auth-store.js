@@ -1,17 +1,14 @@
 // ====================================================================
 // DARK ORBIT · AUTH SYSTEM
-// Signup redirects to LOGIN; the user must log in before the game.
-// Fixed-size card during login ↔ signup morph.
+// Signup redirects to LOGIN. Fixed-size morph via CSS grid stack.
 // ====================================================================
 (function () {
   'use strict';
 
-  // ---------- storage keys ----------
   const USERS_KEY   = 'darkorbit_users';
   const SESSION_KEY = 'darkorbit_session';
   const RESET_KEY   = 'darkorbit_reset';
 
-  // ---------- storage helpers ----------
   function loadUsers() {
     try { return JSON.parse(localStorage.getItem(USERS_KEY)) || {}; }
     catch (e) { return {}; }
@@ -50,7 +47,6 @@
     return false;
   }
 
-  // ---------- UI refs ----------
   const authOverlay     = document.getElementById('authOverlay');
   const authMsg         = document.getElementById('authMsg');
   const authTabs        = document.getElementById('authTabs');
@@ -79,10 +75,8 @@
   const notFoundText    = document.getElementById('notFoundText');
   const gotoSignupBtn   = document.getElementById('gotoSignupBtn');
 
-  // ---------- morph helpers ----------
   const authCard = document.querySelector('.auth-card');
   let indicator = null;
-  let morphing = false;
 
   function ensureIndicator() {
     if (indicator || !authTabs) return;
@@ -90,22 +84,16 @@
     indicator.className = 'auth-tab-indicator';
     authTabs.appendChild(indicator);
   }
-
   function placeIndicator(name) {
     if (!indicator) return;
     const idx = name === 'signup' ? 1 : 0;
     indicator.style.transform = 'translateX(' + (idx * 100) + '%)';
   }
 
-  // Crossfade between login and signup without resizing the card.
-  // The card's CSS min-height holds it at the taller (signup) size.
-  function morphToForm(targetName, instant) {
+  function morphToForm(targetName) {
     const targetForm = { login: loginForm, signup: signupForm, forgot: forgotForm,
                          otp: otpForm, reset: resetForm }[targetName];
     if (!targetForm) return;
-
-    const currentActive = document.querySelector('.auth-form.active');
-    const currentName = currentActive ? currentActive.id.replace('Form', '').toLowerCase() : '';
 
     if (authTabs)    authTabs.style.display    = (targetName === 'login' || targetName === 'signup') ? 'flex'  : 'none';
     if (socialBlock) socialBlock.style.display = (targetName === 'login' || targetName === 'signup') ? 'block' : 'none';
@@ -121,49 +109,14 @@
     if (targetName !== 'login')  hideNotFoundPrompt();
     showMsg('');
 
-    const reducedMotion = window.matchMedia &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const isTopLevelSwitch =
-      (currentName === 'login' || currentName === 'signup') &&
-      (targetName  === 'login' || targetName  === 'signup') &&
-      currentName !== targetName;
-
-    // ---- Instant swap (non-morph cases) ----
-    if (!authCard || instant || reducedMotion || !isTopLevelSwitch) {
-      [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
-        if (f) f.classList.remove('active');
-      });
-      targetForm.classList.add('active');
-      // Non-tab forms need the card to size to their content
-      if (targetName === 'forgot' || targetName === 'otp' || targetName === 'reset') {
-        authCard.classList.add('card-autoheight');
-      } else {
-        authCard.classList.remove('card-autoheight');
-      }
-      return;
-    }
-
-    // ---- Morph: crossfade inside a FIXED card ----
-    authCard.classList.remove('card-autoheight');
-    if (morphing) morphing = false;
-    morphing = true;
-
-    if (currentActive) currentActive.classList.remove('active');
-
-    setTimeout(function () {
-      targetForm.classList.add('active');
-    }, 120);
-
-    setTimeout(function () {
-      morphing = false;
-    }, 500);
+    [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
+      if (f) f.classList.remove('active');
+    });
+    targetForm.classList.add('active');
   }
 
-  function showForm(name) {
-    morphToForm(name, false);
-  }
+  function showForm(name) { morphToForm(name); }
 
-  // ---------- account-not-found prompt ----------
   function showNotFoundPrompt(message) {
     if (!notFoundPrompt || !notFoundText) return;
     notFoundText.textContent = message ||
@@ -196,18 +149,15 @@
         if (el) el.value = typed;
       }
       const focusEl = document.getElementById('signupUser');
-      if (focusEl) setTimeout(function () { focusEl.focus(); }, 450);
+      if (focusEl) setTimeout(function () { focusEl.focus(); }, 350);
     });
   }
 
-  // ---------- tab clicks ----------
   ensureIndicator();
   placeIndicator('login');
 
   tabs.forEach(function (tab) {
-    tab.addEventListener('click', function () {
-      showForm(tab.dataset.tab);
-    });
+    tab.addEventListener('click', function () { showForm(tab.dataset.tab); });
   });
 
   document.querySelectorAll('[data-back]').forEach(function (btn) {
@@ -218,7 +168,6 @@
     });
   });
 
-  // ---------- eye toggle ----------
   document.querySelectorAll('.eye-toggle').forEach(function (btn) {
     btn.addEventListener('click', function () {
       const input = document.getElementById(btn.getAttribute('data-target'));
@@ -230,7 +179,6 @@
     });
   });
 
-  // ---------- messages ----------
   function showMsg(text, type) {
     if (!authMsg) return;
     authMsg.textContent = text;
@@ -246,7 +194,6 @@
     }
   }
 
-  // ---------- email availability UI ----------
   let emailCheckTimer = null;
   let emailAvailable  = false;
 
@@ -307,7 +254,6 @@
     clearTimeout(emailCheckTimer);
   }
 
-  // ---------- OTP toast ----------
   let toastTimer = null;
   function showOtpToast(code) {
     if (!otpToast || !toastCode) return;
@@ -321,7 +267,7 @@
   });
 
   // ==================================================================
-  // SIGN UP  →  redirect to LOGIN (no auto-login)
+  // SIGN UP  →  redirect to LOGIN
   // ==================================================================
   if (signupForm) {
     signupForm.addEventListener('submit', function (e) {
@@ -369,7 +315,7 @@
       showMsg('ACCOUNT CREATED \u00B7 PLEASE LOG IN', 'success');
 
       setTimeout(function () {
-        morphToForm('login', false);
+        morphToForm('login');
         if (loginUserInput) {
           loginUserInput.value = username;
           loginUserInput.focus();
@@ -377,13 +323,13 @@
         if (loginPassInput) loginPassInput.value = '';
         setTimeout(function () {
           showMsg('ACCOUNT CREATED \u00B7 PLEASE LOG IN', 'success');
-        }, 420);
+        }, 320);
       }, 700);
     });
   }
 
   // ==================================================================
-  // LOGIN  (required to enter the game)
+  // LOGIN
   // ==================================================================
   if (loginForm) {
     loginForm.addEventListener('submit', function (e) {
@@ -491,7 +437,7 @@
       showForm('otp');
       clearOtpInputs();
       const firstOtp = document.querySelector('[data-otp="0"]');
-      if (firstOtp) setTimeout(function () { firstOtp.focus(); }, 450);
+      if (firstOtp) setTimeout(function () { firstOtp.focus(); }, 350);
     });
   }
 
@@ -544,7 +490,6 @@
     });
   }
 
-  // ---------- OTP inputs ----------
   const otpInputs = document.querySelectorAll('[data-otp]');
   otpInputs.forEach(function (input, idx) {
     input.addEventListener('input', function (e) {
@@ -593,7 +538,7 @@
         const rp2 = document.getElementById('resetPass2');
         if (rp)  rp.value = '';
         if (rp2) rp2.value = '';
-        if (rp) setTimeout(function () { rp.focus(); }, 450);
+        if (rp) setTimeout(function () { rp.focus(); }, 350);
       }, 400);
     });
   }
@@ -729,9 +674,6 @@
     window.__gameRunning = true;
   }
 
-  // ==================================================================
-  // AUTO-RESTORE SESSION
-  // ==================================================================
   (function restoreSession() {
     const session = getSession();
     if (session && session.username) {
