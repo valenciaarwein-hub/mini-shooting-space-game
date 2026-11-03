@@ -1,14 +1,17 @@
 // ====================================================================
 // DARK ORBIT · AUTH SYSTEM
-// Signup redirects to LOGIN. Fixed-size morph via CSS grid stack.
+// Signup redirects to LOGIN; the user must log in before the game.
+// Adds a smooth morph transition between login and signup.
 // ====================================================================
 (function () {
   'use strict';
 
+  // ---------- storage keys ----------
   const USERS_KEY   = 'darkorbit_users';
   const SESSION_KEY = 'darkorbit_session';
   const RESET_KEY   = 'darkorbit_reset';
 
+  // ---------- storage helpers ----------
   function loadUsers() {
     try { return JSON.parse(localStorage.getItem(USERS_KEY)) || {}; }
     catch (e) { return {}; }
@@ -47,6 +50,7 @@
     return false;
   }
 
+  // ---------- UI refs ----------
   const authOverlay     = document.getElementById('authOverlay');
   const authMsg         = document.getElementById('authMsg');
   const authTabs        = document.getElementById('authTabs');
@@ -75,8 +79,10 @@
   const notFoundText    = document.getElementById('notFoundText');
   const gotoSignupBtn   = document.getElementById('gotoSignupBtn');
 
+  // ---------- morph helpers ----------
   const authCard = document.querySelector('.auth-card');
   let indicator = null;
+  let morphing = false;
 
   function ensureIndicator() {
     if (indicator || !authTabs) return;
@@ -84,16 +90,20 @@
     indicator.className = 'auth-tab-indicator';
     authTabs.appendChild(indicator);
   }
+
   function placeIndicator(name) {
     if (!indicator) return;
     const idx = name === 'signup' ? 1 : 0;
     indicator.style.transform = 'translateX(' + (idx * 100) + '%)';
   }
 
-  function morphToForm(targetName) {
+  function morphToForm(targetName, instant) {
     const targetForm = { login: loginForm, signup: signupForm, forgot: forgotForm,
                          otp: otpForm, reset: resetForm }[targetName];
     if (!targetForm) return;
+
+    const currentActive = document.querySelector('.auth-form.active');
+    const currentName = currentActive ? currentActive.id.replace('Form', '').toLowerCase() : '';
 
     if (authTabs)    authTabs.style.display    = (targetName === 'login' || targetName === 'signup') ? 'flex'  : 'none';
     if (socialBlock) socialBlock.style.display = (targetName === 'login' || targetName === 'signup') ? 'block' : 'none';
@@ -109,14 +119,72 @@
     if (targetName !== 'login')  hideNotFoundPrompt();
     showMsg('');
 
-    [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
-      if (f) f.classList.remove('active');
+    const reducedMotion = window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isTopLevelSwitch =
+      (currentName === 'login' || currentName === 'signup') &&
+      (targetName  === 'login' || targetName  === 'signup') &&
+      currentName !== targetName;
+
+    if (!authCard || instant || reducedMotion || !isTopLevelSwitch) {
+      [loginForm, signupForm, forgotForm, otpForm, resetForm].forEach(function (f) {
+        if (f) f.classList.remove('active');
+      });
+      targetForm.classList.add('active');
+      authCard.style.height = '';
+      return;
+    }
+
+    if (morphing) morphing = false;
+
+    const startH = authCard.getBoundingClientRect().height;
+    const endH = (function () {
+      const clone = targetForm.cloneNode(true);
+      clone.style.position = 'relative';
+      clone.style.opacity = '1';
+      clone.style.transform = 'none';
+      clone.style.left = '0';
+      clone.style.right = '0';
+      clone.style.top = '0';
+      clone.style.visibility = 'hidden';
+      clone.style.pointerEvents = 'none';
+      authCard.appendChild(clone);
+      const h = clone.scrollHeight;
+      authCard.removeChild(clone);
+      return h;
+    })();
+
+    morphing = true;
+    authCard.style.height = startH + 'px';
+
+    if (currentActive) currentActive.classList.remove('active');
+
+    requestAnimationFrame(function () {
+      authCard.style.height = endH + 'px';
     });
-    targetForm.classList.add('active');
+
+    setTimeout(function () {
+      targetForm.classList.add('active');
+    }, 160);
+
+    const done = function () {
+      if (!morphing) return;
+      morphing = false;
+      authCard.style.height = '';
+      authCard.removeEventListener('transitionend', onEnd);
+    };
+    const onEnd = function (e) {
+      if (e.propertyName === 'height') done();
+    };
+    authCard.addEventListener('transitionend', onEnd);
+    setTimeout(done, 500);
   }
 
-  function showForm(name) { morphToForm(name); }
+  function showForm(name) {
+    morphToForm(name, false);
+  }
 
+  // ---------- account-not-found prompt ----------
   function showNotFoundPrompt(message) {
     if (!notFoundPrompt || !notFoundText) return;
     notFoundText.textContent = message ||
@@ -126,12 +194,29 @@
     notFoundPrompt.classList.add('show');
     if (loginUserInput) loginUserInput.classList.add('input-error');
     if (loginPassInput) loginPassInput.classList.add('input-error');
+    requestAnimationFrame(function () { refreshCardHeight(); });
   }
   function hideNotFoundPrompt() {
     if (!notFoundPrompt) return;
     notFoundPrompt.classList.remove('show');
     if (loginUserInput) loginUserInput.classList.remove('input-error');
     if (loginPassInput) loginPassInput.classList.remove('input-error');
+    requestAnimationFrame(function () { refreshCardHeight(); });
+  }
+
+  function refreshCardHeight() {
+    if (!authCard) return;
+    const active = document.querySelector('.auth-form.active');
+    if (!active) return;
+    authCard.style.height = '';
+    const targetH = active.scrollHeight;
+    if (targetH > 0 && Math.abs(authCard.getBoundingClientRect().height - targetH) > 2) {
+      authCard.style.height = authCard.getBoundingClientRect().height + 'px';
+      requestAnimationFrame(function () {
+        authCard.style.height = targetH + 'px';
+      });
+      setTimeout(function () { authCard.style.height = ''; }, 450);
+    }
   }
 
   if (loginUserInput) loginUserInput.addEventListener('input', hideNotFoundPrompt);
@@ -149,15 +234,18 @@
         if (el) el.value = typed;
       }
       const focusEl = document.getElementById('signupUser');
-      if (focusEl) setTimeout(function () { focusEl.focus(); }, 350);
+      if (focusEl) setTimeout(function () { focusEl.focus(); }, 450);
     });
   }
 
+  // ---------- tab clicks ----------
   ensureIndicator();
   placeIndicator('login');
 
   tabs.forEach(function (tab) {
-    tab.addEventListener('click', function () { showForm(tab.dataset.tab); });
+    tab.addEventListener('click', function () {
+      showForm(tab.dataset.tab);
+    });
   });
 
   document.querySelectorAll('[data-back]').forEach(function (btn) {
@@ -168,6 +256,7 @@
     });
   });
 
+  // ---------- eye toggle ----------
   document.querySelectorAll('.eye-toggle').forEach(function (btn) {
     btn.addEventListener('click', function () {
       const input = document.getElementById(btn.getAttribute('data-target'));
@@ -179,6 +268,7 @@
     });
   });
 
+  // ---------- messages ----------
   function showMsg(text, type) {
     if (!authMsg) return;
     authMsg.textContent = text;
@@ -194,6 +284,7 @@
     }
   }
 
+  // ---------- email availability UI ----------
   let emailCheckTimer = null;
   let emailAvailable  = false;
 
@@ -254,6 +345,7 @@
     clearTimeout(emailCheckTimer);
   }
 
+  // ---------- OTP toast ----------
   let toastTimer = null;
   function showOtpToast(code) {
     if (!otpToast || !toastCode) return;
@@ -267,7 +359,7 @@
   });
 
   // ==================================================================
-  // SIGN UP  →  redirect to LOGIN
+  // SIGN UP  →  redirect to LOGIN (no auto-login)
   // ==================================================================
   if (signupForm) {
     signupForm.addEventListener('submit', function (e) {
@@ -306,6 +398,7 @@
       };
       saveUsers(users);
 
+      // Clear signup fields
       if (usernameEl) usernameEl.value = '';
       if (passEl)     passEl.value = '';
       if (pass2El)    pass2El.value = '';
@@ -314,8 +407,9 @@
 
       showMsg('ACCOUNT CREATED \u00B7 PLEASE LOG IN', 'success');
 
+      // Switch to LOGIN after a short delay, pre-fill username, require password
       setTimeout(function () {
-        morphToForm('login');
+        morphToForm('login', false);
         if (loginUserInput) {
           loginUserInput.value = username;
           loginUserInput.focus();
@@ -323,13 +417,13 @@
         if (loginPassInput) loginPassInput.value = '';
         setTimeout(function () {
           showMsg('ACCOUNT CREATED \u00B7 PLEASE LOG IN', 'success');
-        }, 320);
+        }, 420);
       }, 700);
     });
   }
 
   // ==================================================================
-  // LOGIN
+  // LOGIN  (required to enter the game)
   // ==================================================================
   if (loginForm) {
     loginForm.addEventListener('submit', function (e) {
@@ -437,7 +531,7 @@
       showForm('otp');
       clearOtpInputs();
       const firstOtp = document.querySelector('[data-otp="0"]');
-      if (firstOtp) setTimeout(function () { firstOtp.focus(); }, 350);
+      if (firstOtp) setTimeout(function () { firstOtp.focus(); }, 450);
     });
   }
 
@@ -490,6 +584,7 @@
     });
   }
 
+  // ---------- OTP inputs ----------
   const otpInputs = document.querySelectorAll('[data-otp]');
   otpInputs.forEach(function (input, idx) {
     input.addEventListener('input', function (e) {
@@ -538,7 +633,7 @@
         const rp2 = document.getElementById('resetPass2');
         if (rp)  rp.value = '';
         if (rp2) rp2.value = '';
-        if (rp) setTimeout(function () { rp.focus(); }, 350);
+        if (rp) setTimeout(function () { rp.focus(); }, 450);
       }, 400);
     });
   }
@@ -674,6 +769,9 @@
     window.__gameRunning = true;
   }
 
+  // ==================================================================
+  // AUTO-RESTORE SESSION
+  // ==================================================================
   (function restoreSession() {
     const session = getSession();
     if (session && session.username) {
