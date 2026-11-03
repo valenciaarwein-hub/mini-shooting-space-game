@@ -2,6 +2,7 @@
 // DARK ORBIT · AUTH SYSTEM
 // Handles: signup, login, social login, forgot password, OTP, reset,
 // logout, session restore, and starting the game.
+// Tab switching triggers the warp transition exposed by script.js.
 // ====================================================================
 (function () {
   'use strict';
@@ -30,7 +31,7 @@
     return 'u_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
   }
   function setSession(username) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ username, ts: Date.now() }));
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ username: username, ts: Date.now() }));
   }
   function getSession() {
     try { return JSON.parse(localStorage.getItem(SESSION_KEY)); }
@@ -85,7 +86,7 @@
     notFoundText.textContent = message ||
       'This account is not yet registered. Please sign up first to create an account.';
     notFoundPrompt.classList.remove('show');
-    void notFoundPrompt.offsetWidth; // restart animation
+    void notFoundPrompt.offsetWidth;
     notFoundPrompt.classList.add('show');
     if (loginUserInput) loginUserInput.classList.add('input-error');
     if (loginPassInput) loginPassInput.classList.add('input-error');
@@ -96,30 +97,29 @@
     if (loginUserInput) loginUserInput.classList.remove('input-error');
     if (loginPassInput) loginPassInput.classList.remove('input-error');
   }
-  // null-safe listeners (won't crash if the elements are missing)
   if (loginUserInput) loginUserInput.addEventListener('input', hideNotFoundPrompt);
   if (loginPassInput) loginPassInput.addEventListener('input', hideNotFoundPrompt);
 
   if (gotoSignupBtn) {
-    gotoSignupBtn.addEventListener('click', () => {
+    gotoSignupBtn.addEventListener('click', function () {
       const typed = loginUserInput ? loginUserInput.value.trim() : '';
       showForm('signup');
       if (typed && isValidEmailFormat(typed)) {
         const el = document.getElementById('signupEmail');
-        if (el) { el.value = typed; emailInput.dispatchEvent(new Event('input')); }
+        if (el) { el.value = typed; if (emailInput) emailInput.dispatchEvent(new Event('input')); }
       } else if (typed) {
         const el = document.getElementById('signupUser');
         if (el) el.value = typed;
       }
       const focusEl = document.getElementById('signupUser');
-      if (focusEl) setTimeout(() => focusEl.focus(), 50);
+      if (focusEl) setTimeout(function () { focusEl.focus(); }, 50);
     });
   }
 
   // ---------- form switching ----------
   function showForm(name) {
     [loginForm, signupForm, forgotForm, otpForm, resetForm]
-      .forEach(f => { if (f) f.classList.remove('active'); });
+      .forEach(function (f) { if (f) f.classList.remove('active'); });
 
     const targetForm = { login: loginForm, signup: signupForm, forgot: forgotForm,
                          otp: otpForm, reset: resetForm }[name];
@@ -132,7 +132,7 @@
       socialBlock.style.display = (name === 'login' || name === 'signup') ? 'block' : 'none';
     }
 
-    tabs.forEach(t => {
+    tabs.forEach(function (t) {
       const isActive = t.dataset.tab === name;
       t.classList.toggle('active', isActive);
       t.setAttribute('aria-selected', isActive ? 'true' : 'false');
@@ -142,10 +142,36 @@
     if (name !== 'login')  hideNotFoundPrompt();
     showMsg('');
   }
-  // null-safe tab listeners (these are the ones that were not firing before)
-  tabs.forEach(tab => tab.addEventListener('click', () => showForm(tab.dataset.tab)));
-  document.querySelectorAll('[data-back]').forEach(btn => {
-    btn.addEventListener('click', () => {
+
+  // ---------- tab clicks: warp between login <-> signup ----------
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      const target = tab.dataset.tab;
+
+      const currentActive = document.querySelector('.auth-form.active');
+      let currentName = '';
+      if (currentActive) currentName = currentActive.id.replace('Form', '').toLowerCase();
+
+      const isTopLevelSwitch =
+        (currentName === 'login' || currentName === 'signup') &&
+        (target      === 'login' || target      === 'signup') &&
+        currentName !== target;
+
+      if (isTopLevelSwitch && typeof window.__warpTransition === 'function') {
+        const card = document.querySelector('.auth-card');
+        if (card) card.classList.add('warping');
+        window.__warpTransition(function () {
+          showForm(target);
+          setTimeout(function () { if (card) card.classList.remove('warping'); }, 120);
+        });
+      } else {
+        showForm(target);
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-back]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
       stopResendCountdown();
       clearResetState();
       showForm('login');
@@ -153,8 +179,8 @@
   });
 
   // ---------- eye toggle ----------
-  document.querySelectorAll('.eye-toggle').forEach(btn => {
-    btn.addEventListener('click', () => {
+  document.querySelectorAll('.eye-toggle').forEach(function (btn) {
+    btn.addEventListener('click', function () {
       const input = document.getElementById(btn.getAttribute('data-target'));
       if (!input) return;
       const isHidden = input.type === 'password';
@@ -171,7 +197,7 @@
     authMsg.className = 'auth-msg ' + (type || '');
     if (text) {
       clearTimeout(showMsg._t);
-      showMsg._t = setTimeout(() => {
+      showMsg._t = setTimeout(function () {
         if (authMsg.textContent === text) {
           authMsg.textContent = '';
           authMsg.className = 'auth-msg';
@@ -200,19 +226,19 @@
     emailStatus.className = 'field-status ' + (state || '');
     emailIcon.className = 'email-icon ' + (state || '');
     if (state === 'available') {
-      emailIcon.textContent = '✓';
+      emailIcon.textContent = '\u2713';
       emailInput.classList.add('valid-email');
       emailInput.classList.remove('invalid-email');
       emailAvailable = true;
       signupBtn.disabled = false;
     } else if (state === 'taken') {
-      emailIcon.textContent = '✗';
+      emailIcon.textContent = '\u2717';
       emailInput.classList.add('invalid-email');
       emailInput.classList.remove('valid-email');
       emailAvailable = false;
       signupBtn.disabled = true;
     } else if (state === 'checking') {
-      emailIcon.textContent = '⟳';
+      emailIcon.textContent = '\u27F3';
       emailInput.classList.remove('valid-email', 'invalid-email');
       emailAvailable = false;
       signupBtn.disabled = true;
@@ -224,13 +250,13 @@
     }
   }
   if (emailInput) {
-    emailInput.addEventListener('input', () => {
+    emailInput.addEventListener('input', function () {
       const email = emailInput.value.trim();
       clearTimeout(emailCheckTimer);
       if (!email) { resetEmailStatus(); return; }
       if (!isValidEmailFormat(email)) { setEmailStatus('taken', 'INVALID FORMAT'); return; }
-      setEmailStatus('checking', 'CHECKING…');
-      emailCheckTimer = setTimeout(() => {
+      setEmailStatus('checking', 'CHECKING\u2026');
+      emailCheckTimer = setTimeout(function () {
         if (isEmailRegistered(email)) setEmailStatus('taken', 'ALREADY REGISTERED');
         else                          setEmailStatus('available', 'AVAILABLE');
       }, 400);
@@ -248,15 +274,17 @@
     toastCode.textContent = code;
     otpToast.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => otpToast.classList.remove('show'), 10000);
+    toastTimer = setTimeout(function () { otpToast.classList.remove('show'); }, 10000);
   }
-  if (toastClose) toastClose.addEventListener('click', () => otpToast && otpToast.classList.remove('show'));
+  if (toastClose) toastClose.addEventListener('click', function () {
+    if (otpToast) otpToast.classList.remove('show');
+  });
 
   // ==================================================================
   // SIGN UP
   // ==================================================================
   if (signupForm) {
-    signupForm.addEventListener('submit', (e) => {
+    signupForm.addEventListener('submit', function (e) {
       e.preventDefault();
       const usernameEl = document.getElementById('signupUser');
       const passEl     = document.getElementById('signupPass');
@@ -283,8 +311,8 @@
 
       users[lowerUser] = {
         id: generateId(),
-        username,
-        email,
+        username: username,
+        email: email,
         password: hashPassword(pass),
         provider: 'local',
         createdAt: Date.now(),
@@ -292,9 +320,9 @@
       };
       saveUsers(users);
 
-      showMsg('ACCOUNT CREATED · LOGGING IN…', 'success');
+      showMsg('ACCOUNT CREATED \u00B7 LOGGING IN\u2026', 'success');
       resetEmailStatus();
-      setTimeout(() => { setSession(lowerUser); startGame(username); }, 700);
+      setTimeout(function () { setSession(lowerUser); startGame(username); }, 700);
     });
   }
 
@@ -302,7 +330,7 @@
   // LOGIN
   // ==================================================================
   if (loginForm) {
-    loginForm.addEventListener('submit', (e) => {
+    loginForm.addEventListener('submit', function (e) {
       e.preventDefault();
       const userInput = loginUserInput ? loginUserInput.value.trim().toLowerCase() : '';
       const pass      = loginPassInput ? loginPassInput.value : '';
@@ -325,8 +353,8 @@
       if (!account) {
         showMsg('ACCOUNT NOT FOUND', 'error');
         showNotFoundPrompt(
-          `The account "${loginUserInput ? loginUserInput.value.trim() : userInput}" is not yet registered. ` +
-          `Please sign up first to create an account.`
+          'The account "' + (loginUserInput ? loginUserInput.value.trim() : userInput) +
+          '" is not yet registered. Please sign up first to create an account.'
         );
         return;
       }
@@ -342,7 +370,7 @@
       showMsg('ACCESS GRANTED', 'success');
       hideNotFoundPrompt();
       const displayName = account.username;
-      setTimeout(() => { setSession(accountKey); startGame(displayName); }, 500);
+      setTimeout(function () { setSession(accountKey); startGame(displayName); }, 500);
     });
   }
 
@@ -355,7 +383,7 @@
 
   const forgotLinkEl = document.getElementById('forgotLink');
   if (forgotLinkEl) {
-    forgotLinkEl.addEventListener('click', () => {
+    forgotLinkEl.addEventListener('click', function () {
       showForm('forgot');
       const el = document.getElementById('forgotUser');
       if (el) el.value = '';
@@ -363,7 +391,7 @@
   }
 
   if (forgotForm) {
-    forgotForm.addEventListener('submit', (e) => {
+    forgotForm.addEventListener('submit', function (e) {
       e.preventDefault();
       const el = document.getElementById('forgotUser');
       const input = el ? el.value.trim().toLowerCase() : '';
@@ -380,22 +408,20 @@
         }
       }
       if (!account) {
-        showMsg('ACCOUNT NOT FOUND · PLEASE SIGN UP', 'error');
+        showMsg('ACCOUNT NOT FOUND \u00B7 PLEASE SIGN UP', 'error');
         showNotFoundPrompt(
-          `The account "${input}" is not registered. ` +
-          `Please sign up first to create an account.`
+          'The account "' + input + '" is not registered. Please sign up first to create an account.'
         );
         return;
       }
       if (account.provider !== 'local') {
-        showMsg('THIS ACCOUNT USES ' + account.provider.toUpperCase() +
-                ' · NO PASSWORD TO RESET', 'error');
+        showMsg('THIS ACCOUNT USES ' + account.provider.toUpperCase() + ' \u00B7 NO PASSWORD TO RESET', 'error');
         return;
       }
 
       const code = String(Math.floor(100000 + Math.random() * 900000));
       resetCtx = {
-        key: accountKey, code,
+        key: accountKey, code: code,
         expires: Date.now() + 5 * 60 * 1000,
         displayName: account.username,
         email: account.email
@@ -422,13 +448,13 @@
 
     let countEl = document.getElementById('resendCount');
     if (!countEl) {
-      resendBtn.innerHTML = `RESEND OTP (<span id="resendCount">${remaining}</span>s)`;
+      resendBtn.innerHTML = 'RESEND OTP (<span id="resendCount">' + remaining + '</span>s)';
       countEl = document.getElementById('resendCount');
     } else {
       countEl.textContent = remaining;
     }
 
-    resendInterval = setInterval(() => {
+    resendInterval = setInterval(function () {
       remaining--;
       const el = document.getElementById('resendCount');
       if (el) el.textContent = remaining;
@@ -447,8 +473,8 @@
 
   const resendOtpBtn = document.getElementById('resendOtp');
   if (resendOtpBtn) {
-    resendOtpBtn.addEventListener('click', () => {
-      if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); return; }
+    resendOtpBtn.addEventListener('click', function () {
+      if (!resetCtx) { showMsg('SESSION EXPIRED \u00B7 START OVER', 'error'); return; }
       const code = String(Math.floor(100000 + Math.random() * 900000));
       resetCtx.code = code;
       resetCtx.expires = Date.now() + 5 * 60 * 1000;
@@ -464,19 +490,19 @@
 
   // ---------- OTP inputs ----------
   const otpInputs = document.querySelectorAll('[data-otp]');
-  otpInputs.forEach((input, idx) => {
-    input.addEventListener('input', (e) => {
+  otpInputs.forEach(function (input, idx) {
+    input.addEventListener('input', function (e) {
       const v = e.target.value.replace(/\D/g, '');
       e.target.value = v.slice(0, 1);
       e.target.classList.toggle('filled', !!e.target.value);
       if (e.target.value && idx < otpInputs.length - 1) otpInputs[idx + 1].focus();
     });
-    input.addEventListener('keydown', (e) => {
+    input.addEventListener('keydown', function (e) {
       if (e.key === 'Backspace' && !e.target.value && idx > 0) otpInputs[idx - 1].focus();
       if (e.key === 'ArrowLeft'  && idx > 0)                    otpInputs[idx - 1].focus();
       if (e.key === 'ArrowRight' && idx < otpInputs.length - 1) otpInputs[idx + 1].focus();
     });
-    input.addEventListener('paste', (e) => {
+    input.addEventListener('paste', function (e) {
       e.preventDefault();
       const text = (e.clipboardData || window.clipboardData)
         .getData('text').replace(/\D/g, '').slice(0, 6);
@@ -488,24 +514,24 @@
     });
   });
   function clearOtpInputs() {
-    otpInputs.forEach(i => { i.value = ''; i.classList.remove('filled'); });
+    otpInputs.forEach(function (i) { i.value = ''; i.classList.remove('filled'); });
   }
   function getOtpValue() {
-    return Array.from(otpInputs).map(i => i.value).join('');
+    return Array.prototype.map.call(otpInputs, function (i) { return i.value; }).join('');
   }
 
   if (otpForm) {
-    otpForm.addEventListener('submit', (e) => {
+    otpForm.addEventListener('submit', function (e) {
       e.preventDefault();
-      if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); showForm('forgot'); return; }
+      if (!resetCtx) { showMsg('SESSION EXPIRED \u00B7 START OVER', 'error'); showForm('forgot'); return; }
       const entered = getOtpValue();
       if (entered.length !== 6)          { showMsg('ENTER ALL 6 DIGITS', 'error'); return; }
-      if (Date.now() > resetCtx.expires) { showMsg('OTP EXPIRED · REQUEST A NEW ONE', 'error'); return; }
+      if (Date.now() > resetCtx.expires) { showMsg('OTP EXPIRED \u00B7 REQUEST A NEW ONE', 'error'); return; }
       if (entered !== resetCtx.code)     { showMsg('INVALID OTP', 'error'); return; }
 
       showMsg('IDENTITY VERIFIED', 'success');
       stopResendCountdown();
-      setTimeout(() => {
+      setTimeout(function () {
         showForm('reset');
         const rp  = document.getElementById('resetPass');
         const rp2 = document.getElementById('resetPass2');
@@ -517,9 +543,9 @@
   }
 
   if (resetForm) {
-    resetForm.addEventListener('submit', (e) => {
+    resetForm.addEventListener('submit', function (e) {
       e.preventDefault();
-      if (!resetCtx) { showMsg('SESSION EXPIRED · START OVER', 'error'); showForm('forgot'); return; }
+      if (!resetCtx) { showMsg('SESSION EXPIRED \u00B7 START OVER', 'error'); showForm('forgot'); return; }
       const rp  = document.getElementById('resetPass');
       const rp2 = document.getElementById('resetPass2');
       const pass  = rp ? rp.value : '';
@@ -534,8 +560,8 @@
       account.password = hashPassword(pass);
       saveUsers(users);
       clearResetState();
-      showMsg('PASSWORD UPDATED · PLEASE LOGIN', 'success');
-      setTimeout(() => showForm('login'), 800);
+      showMsg('PASSWORD UPDATED \u00B7 PLEASE LOGIN', 'success');
+      setTimeout(function () { showForm('login'); }, 800);
     });
   }
 
@@ -546,7 +572,6 @@
     clearOtpInputs();
   }
 
-  // ---------- restore pending reset on reload ----------
   (function restoreReset() {
     try {
       const saved = JSON.parse(localStorage.getItem(RESET_KEY));
@@ -567,8 +592,8 @@
   // ==================================================================
   function socialLogin(provider) {
     const providerName = provider === 'google' ? 'Google' : 'Facebook';
-    const fakeEmail = `${provider}_pilot_${Math.floor(Math.random() * 9000 + 1000)}@${provider}.com`;
-    const fakeName  = `${providerName} Pilot`;
+    const fakeEmail = provider + '_pilot_' + Math.floor(Math.random() * 9000 + 1000) + '@' + provider + '.com';
+    const fakeName  = providerName + ' Pilot';
 
     const users = loadUsers();
     let existingKey = null;
@@ -580,51 +605,51 @@
     if (existingKey) {
       displayName = users[existingKey].username;
       sessionKey  = existingKey;
-      showMsg(`WELCOME BACK, ${displayName.toUpperCase()}`, 'success');
+      showMsg('WELCOME BACK, ' + displayName.toUpperCase(), 'success');
     } else {
-      const key = `${provider}_${Date.now().toString(36)}`;
+      const key = provider + '_' + Date.now().toString(36);
       users[key] = {
         id: generateId(),
         username: fakeName,
         email: fakeEmail,
         password: null,
-        provider,
+        provider: provider,
         createdAt: Date.now(),
         stats: { highScore: 0, gamesPlayed: 0 }
       };
       saveUsers(users);
       displayName = fakeName;
       sessionKey  = key;
-      showMsg(`SIGNED IN WITH ${providerName.toUpperCase()}`, 'success');
+      showMsg('SIGNED IN WITH ' + providerName.toUpperCase(), 'success');
     }
-    setTimeout(() => { setSession(sessionKey); startGame(displayName); }, 700);
+    setTimeout(function () { setSession(sessionKey); startGame(displayName); }, 700);
   }
   const googleBtn = document.getElementById('googleBtn');
-  if (googleBtn) googleBtn.addEventListener('click', () => socialLogin('google'));
+  if (googleBtn) googleBtn.addEventListener('click', function () { socialLogin('google'); });
   const facebookBtn = document.getElementById('facebookBtn');
-  if (facebookBtn) facebookBtn.addEventListener('click', () => socialLogin('facebook'));
+  if (facebookBtn) facebookBtn.addEventListener('click', function () { socialLogin('facebook'); });
 
   // ==================================================================
   // LOGOUT
   // ==================================================================
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
+    logoutBtn.addEventListener('click', function () {
       clearSession();
       clearResetState();
       clearEmailFeedback();
       hideNotFoundPrompt();
 
-      if (userBar)       userBar.classList.remove('visible');
-      if (gameWrapper)   gameWrapper.classList.remove('visible');
-      if (gameInfo)      gameInfo.classList.add('hidden');
-      if (authOverlay)   authOverlay.classList.remove('hidden');
+      if (userBar)     userBar.classList.remove('visible');
+      if (gameWrapper) gameWrapper.classList.remove('visible');
+      if (gameInfo)    gameInfo.classList.add('hidden');
+      if (authOverlay) authOverlay.classList.remove('hidden');
 
       showForm('login');
       showMsg('LOGGED OUT', 'success');
       window.__gameRunning = false;
 
-      document.querySelectorAll('.eye-toggle.showing').forEach(btn => {
+      document.querySelectorAll('.eye-toggle.showing').forEach(function (btn) {
         const input = document.getElementById(btn.getAttribute('data-target'));
         if (input) input.type = 'password';
         btn.classList.remove('showing');
@@ -633,7 +658,7 @@
   }
 
   // ==================================================================
-  // START GAME (called after login / signup / social / session restore)
+  // START GAME
   // ==================================================================
   function startGame(displayName) {
     if (authOverlay) authOverlay.classList.add('hidden');
@@ -656,17 +681,16 @@
     if (session && session.username) {
       const users   = loadUsers();
       const account = users[session.username];
-      if (account) setTimeout(() => startGame(account.username), 100);
+      if (account) setTimeout(function () { startGame(account.username); }, 100);
       else         clearSession();
     }
   })();
 
-  // expose if other scripts need them (optional)
   window.DarkOrbitAuth = {
-    showForm,
-    showMsg,
-    startGame,
-    loadUsers,
-    saveUsers
+    showForm: showForm,
+    showMsg: showMsg,
+    startGame: startGame,
+    loadUsers: loadUsers,
+    saveUsers: saveUsers
   };
 })();
