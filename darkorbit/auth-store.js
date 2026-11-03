@@ -2,6 +2,7 @@
 // DARK ORBIT · AUTH SYSTEM
 // Handles: signup, login, social login, forgot password, OTP, reset,
 // logout, session restore, and starting the game.
+// Tab clicks use a smooth CSS crossfade between login and signup.
 // ====================================================================
 (function () {
   'use strict';
@@ -142,10 +143,24 @@
     showMsg('');
   }
 
-  // ---------- tab clicks: switch forms directly (no warp) ----------
+  // ---------- tab clicks: smooth crossfade between forms ----------
   tabs.forEach(function (tab) {
     tab.addEventListener('click', function () {
-      showForm(tab.dataset.tab);
+      const target = tab.dataset.tab;
+
+      // If already on this tab, do nothing
+      if (tab.classList.contains('active')) return;
+
+      // Fade the current form out, then swap and let CSS fade the new one in
+      const currentForm = document.querySelector('.auth-form.active');
+      if (currentForm) {
+        currentForm.classList.remove('active');
+        setTimeout(function () {
+          showForm(target);
+        }, 140);
+      } else {
+        showForm(target);
+      }
     });
   });
 
@@ -381,295 +396,4 @@
       if (users[input]) { accountKey = input; account = users[input]; }
       else {
         for (const k in users) {
-          if (users[k].email && users[k].email.toLowerCase() === input) {
-            accountKey = k; account = users[k]; break;
-          }
-        }
-      }
-      if (!account) {
-        showMsg('ACCOUNT NOT FOUND \u00B7 PLEASE SIGN UP', 'error');
-        showNotFoundPrompt(
-          'The account "' + input + '" is not registered. Please sign up first to create an account.'
-        );
-        return;
-      }
-      if (account.provider !== 'local') {
-        showMsg('THIS ACCOUNT USES ' + account.provider.toUpperCase() + ' \u00B7 NO PASSWORD TO RESET', 'error');
-        return;
-      }
-
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      resetCtx = {
-        key: accountKey, code: code,
-        expires: Date.now() + 5 * 60 * 1000,
-        displayName: account.username,
-        email: account.email
-      };
-      localStorage.setItem(RESET_KEY, JSON.stringify(resetCtx));
-      const otpTargetEl = document.getElementById('otpTarget');
-      if (otpTargetEl) otpTargetEl.textContent = account.email;
-      showMsg('OTP SENT TO ' + account.email, 'success');
-      showOtpToast(code);
-      startResendCountdown();
-      showForm('otp');
-      clearOtpInputs();
-      const firstOtp = document.querySelector('[data-otp="0"]');
-      if (firstOtp) firstOtp.focus();
-    });
-  }
-
-  function startResendCountdown() {
-    stopResendCountdown();
-    let remaining = RESEND_SECONDS;
-    const resendBtn = document.getElementById('resendOtp');
-    if (!resendBtn) return;
-    resendBtn.disabled = true;
-
-    let countEl = document.getElementById('resendCount');
-    if (!countEl) {
-      resendBtn.innerHTML = 'RESEND OTP (<span id="resendCount">' + remaining + '</span>s)';
-      countEl = document.getElementById('resendCount');
-    } else {
-      countEl.textContent = remaining;
-    }
-
-    resendInterval = setInterval(function () {
-      remaining--;
-      const el = document.getElementById('resendCount');
-      if (el) el.textContent = remaining;
-      if (remaining <= 0) {
-        stopResendCountdown();
-        const btn = document.getElementById('resendOtp');
-        if (btn) { btn.disabled = false; btn.innerHTML = 'RESEND OTP'; }
-      }
-    }, 1000);
-  }
-  function stopResendCountdown() {
-    if (resendInterval) { clearInterval(resendInterval); resendInterval = null; }
-    const resendBtn = document.getElementById('resendOtp');
-    if (resendBtn) resendBtn.disabled = false;
-  }
-
-  const resendOtpBtn = document.getElementById('resendOtp');
-  if (resendOtpBtn) {
-    resendOtpBtn.addEventListener('click', function () {
-      if (!resetCtx) { showMsg('SESSION EXPIRED \u00B7 START OVER', 'error'); return; }
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      resetCtx.code = code;
-      resetCtx.expires = Date.now() + 5 * 60 * 1000;
-      localStorage.setItem(RESET_KEY, JSON.stringify(resetCtx));
-      showMsg('NEW OTP SENT', 'success');
-      showOtpToast(code);
-      clearOtpInputs();
-      const firstOtp = document.querySelector('[data-otp="0"]');
-      if (firstOtp) firstOtp.focus();
-      startResendCountdown();
-    });
-  }
-
-  // ---------- OTP inputs ----------
-  const otpInputs = document.querySelectorAll('[data-otp]');
-  otpInputs.forEach(function (input, idx) {
-    input.addEventListener('input', function (e) {
-      const v = e.target.value.replace(/\D/g, '');
-      e.target.value = v.slice(0, 1);
-      e.target.classList.toggle('filled', !!e.target.value);
-      if (e.target.value && idx < otpInputs.length - 1) otpInputs[idx + 1].focus();
-    });
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Backspace' && !e.target.value && idx > 0) otpInputs[idx - 1].focus();
-      if (e.key === 'ArrowLeft'  && idx > 0)                    otpInputs[idx - 1].focus();
-      if (e.key === 'ArrowRight' && idx < otpInputs.length - 1) otpInputs[idx + 1].focus();
-    });
-    input.addEventListener('paste', function (e) {
-      e.preventDefault();
-      const text = (e.clipboardData || window.clipboardData)
-        .getData('text').replace(/\D/g, '').slice(0, 6);
-      for (let i = 0; i < otpInputs.length; i++) {
-        otpInputs[i].value = text[i] || '';
-        otpInputs[i].classList.toggle('filled', !!text[i]);
-      }
-      otpInputs[Math.min(text.length, otpInputs.length - 1)].focus();
-    });
-  });
-  function clearOtpInputs() {
-    otpInputs.forEach(function (i) { i.value = ''; i.classList.remove('filled'); });
-  }
-  function getOtpValue() {
-    return Array.prototype.map.call(otpInputs, function (i) { return i.value; }).join('');
-  }
-
-  if (otpForm) {
-    otpForm.addEventListener('submit', function (e) {
-      e.preventDefault();
-      if (!resetCtx) { showMsg('SESSION EXPIRED \u00B7 START OVER', 'error'); showForm('forgot'); return; }
-      const entered = getOtpValue();
-      if (entered.length !== 6)          { showMsg('ENTER ALL 6 DIGITS', 'error'); return; }
-      if (Date.now() > resetCtx.expires) { showMsg('OTP EXPIRED \u00B7 REQUEST A NEW ONE', 'error'); return; }
-      if (entered !== resetCtx.code)     { showMsg('INVALID OTP', 'error'); return; }
-
-      showMsg('IDENTITY VERIFIED', 'success');
-      stopResendCountdown();
-      setTimeout(function () {
-        showForm('reset');
-        const rp  = document.getElementById('resetPass');
-        const rp2 = document.getElementById('resetPass2');
-        if (rp)  rp.value = '';
-        if (rp2) rp2.value = '';
-        if (rp)  rp.focus();
-      }, 400);
-    });
-  }
-
-  if (resetForm) {
-    resetForm.addEventListener('submit', function (e) {
-      e.preventDefault();
-      if (!resetCtx) { showMsg('SESSION EXPIRED \u00B7 START OVER', 'error'); showForm('forgot'); return; }
-      const rp  = document.getElementById('resetPass');
-      const rp2 = document.getElementById('resetPass2');
-      const pass  = rp ? rp.value : '';
-      const pass2 = rp2 ? rp2.value : '';
-      if (pass.length < 6) { showMsg('PASSWORD MUST BE 6+ CHARACTERS', 'error'); return; }
-      if (pass !== pass2)  { showMsg('PASSWORDS DO NOT MATCH', 'error'); return; }
-
-      const users   = loadUsers();
-      const account = users[resetCtx.key];
-      if (!account) { showMsg('ACCOUNT NO LONGER EXISTS', 'error'); showForm('login'); return; }
-
-      account.password = hashPassword(pass);
-      saveUsers(users);
-      clearResetState();
-      showMsg('PASSWORD UPDATED \u00B7 PLEASE LOGIN', 'success');
-      setTimeout(function () { showForm('login'); }, 800);
-    });
-  }
-
-  function clearResetState() {
-    resetCtx = null;
-    localStorage.removeItem(RESET_KEY);
-    stopResendCountdown();
-    clearOtpInputs();
-  }
-
-  (function restoreReset() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(RESET_KEY));
-      if (saved && saved.expires > Date.now()) {
-        resetCtx = saved;
-        const t = document.getElementById('otpTarget');
-        if (t) t.textContent = saved.email || 'your account';
-        showForm('otp');
-        startResendCountdown();
-      } else if (saved) {
-        localStorage.removeItem(RESET_KEY);
-      }
-    } catch (e) {}
-  })();
-
-  // ==================================================================
-  // SOCIAL LOGIN
-  // ==================================================================
-  function socialLogin(provider) {
-    const providerName = provider === 'google' ? 'Google' : 'Facebook';
-    const fakeEmail = provider + '_pilot_' + Math.floor(Math.random() * 9000 + 1000) + '@' + provider + '.com';
-    const fakeName  = providerName + ' Pilot';
-
-    const users = loadUsers();
-    let existingKey = null;
-    for (const k in users) {
-      if (users[k].email === fakeEmail) { existingKey = k; break; }
-    }
-
-    let displayName, sessionKey;
-    if (existingKey) {
-      displayName = users[existingKey].username;
-      sessionKey  = existingKey;
-      showMsg('WELCOME BACK, ' + displayName.toUpperCase(), 'success');
-    } else {
-      const key = provider + '_' + Date.now().toString(36);
-      users[key] = {
-        id: generateId(),
-        username: fakeName,
-        email: fakeEmail,
-        password: null,
-        provider: provider,
-        createdAt: Date.now(),
-        stats: { highScore: 0, gamesPlayed: 0 }
-      };
-      saveUsers(users);
-      displayName = fakeName;
-      sessionKey  = key;
-      showMsg('SIGNED IN WITH ' + providerName.toUpperCase(), 'success');
-    }
-    setTimeout(function () { setSession(sessionKey); startGame(displayName); }, 700);
-  }
-  const googleBtn = document.getElementById('googleBtn');
-  if (googleBtn) googleBtn.addEventListener('click', function () { socialLogin('google'); });
-  const facebookBtn = document.getElementById('facebookBtn');
-  if (facebookBtn) facebookBtn.addEventListener('click', function () { socialLogin('facebook'); });
-
-  // ==================================================================
-  // LOGOUT
-  // ==================================================================
-  const logoutBtn = document.getElementById('logoutBtn');
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', function () {
-      clearSession();
-      clearResetState();
-      clearEmailFeedback();
-      hideNotFoundPrompt();
-
-      if (userBar)     userBar.classList.remove('visible');
-      if (gameWrapper) gameWrapper.classList.remove('visible');
-      if (gameInfo)    gameInfo.classList.add('hidden');
-      if (authOverlay) authOverlay.classList.remove('hidden');
-
-      showForm('login');
-      showMsg('LOGGED OUT', 'success');
-      window.__gameRunning = false;
-
-      document.querySelectorAll('.eye-toggle.showing').forEach(function (btn) {
-        const input = document.getElementById(btn.getAttribute('data-target'));
-        if (input) input.type = 'password';
-        btn.classList.remove('showing');
-      });
-    });
-  }
-
-  // ==================================================================
-  // START GAME
-  // ==================================================================
-  function startGame(displayName) {
-    if (authOverlay) authOverlay.classList.add('hidden');
-    if (userBar)     userBar.classList.add('visible');
-    if (gameWrapper) gameWrapper.classList.add('visible');
-    if (gameInfo)    gameInfo.classList.remove('hidden');
-
-    if (userNameEl)    userNameEl.textContent    = displayName;
-    if (avatarInitial) avatarInitial.textContent = displayName.charAt(0).toUpperCase();
-
-    if (typeof window.__initGame === 'function') window.__initGame();
-    window.__gameRunning = true;
-  }
-
-  // ==================================================================
-  // AUTO-RESTORE SESSION
-  // ==================================================================
-  (function restoreSession() {
-    const session = getSession();
-    if (session && session.username) {
-      const users   = loadUsers();
-      const account = users[session.username];
-      if (account) setTimeout(function () { startGame(account.username); }, 100);
-      else         clearSession();
-    }
-  })();
-
-  window.DarkOrbitAuth = {
-    showForm: showForm,
-    showMsg: showMsg,
-    startGame: startGame,
-    loadUsers: loadUsers,
-    saveUsers: saveUsers
-  };
-})();
+          if (users
