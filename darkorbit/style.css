@@ -87,26 +87,8 @@ body {
   background: #00c8ff;
   box-shadow: 0 0 10px #00c8ff;
 }
-
-/* ---------- SMOOTH FORM CROSSFADE ---------- */
-.auth-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  opacity: 0;
-  transform: translateX(10px);
-  max-height: 0;
-  overflow: hidden;
-  pointer-events: none;
-  transition: opacity 0.28s ease, transform 0.28s ease, max-height 0.28s ease;
-}
-.auth-form.active {
-  opacity: 1;
-  transform: translateX(0);
-  max-height: 1200px;
-  overflow: visible;
-  pointer-events: auto;
-}
+.auth-form { display: none; flex-direction: column; gap: 8px; }
+.auth-form.active { display: flex; }
 
 .field { display: flex; flex-direction: column; gap: 3px; }
 .field label {
