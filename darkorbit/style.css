@@ -25,9 +25,6 @@ body {
 
 .auth-card {
   width: 300px;
-  /* Taller form is signup; keep the card at that height so it never
-     resizes while the login/signup tabs are active. */
-  min-height: 340px;
   background: linear-gradient(145deg, #0a1420, #050a12);
   border: 1px solid #1e3b5a;
   border-radius: 12px;
@@ -36,8 +33,6 @@ body {
   position: relative;
   max-height: 92vh;
   overflow: hidden;
-  transition: min-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: min-height;
 }
 .auth-card::before {
   content: '';
@@ -87,7 +82,6 @@ body {
 .auth-tab:hover { color: #9fd8ff; }
 .auth-tab.active { color: #7fe0ff; text-shadow: 0 0 10px #00a6ff; }
 
-/* Sliding underline indicator */
 .auth-tab-indicator {
   position: absolute;
   bottom: -1px;
@@ -101,31 +95,37 @@ body {
   pointer-events: none;
 }
 
-/* ---------- MORPHING FORMS ---------- */
+/* ---------- FORM STACK ---------- */
+.auth-forms {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
 .auth-form {
+  grid-area: 1 / 1 / 2 / 2;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  position: absolute;
-  left: 20px;
-  right: 20px;
-  top: 76px; /* below tabs */
   opacity: 0;
-  transform: translateY(8px) scale(0.98);
+  transform: translateY(6px) scale(0.99);
   pointer-events: none;
+  visibility: hidden;
   transition:
-    opacity 0.28s ease,
-    transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: opacity, transform;
+    opacity 0.26s ease,
+    transform 0.30s cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear 0.30s;
 }
 .auth-form.active {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
-  position: absolute;
-  left: 20px;
-  right: 20px;
-  top: 76px;
+  visibility: visible;
+  transition:
+    opacity 0.26s ease,
+    transform 0.30s cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear 0s;
 }
 
 .field { display: flex; flex-direction: column; gap: 3px; }
@@ -489,7 +489,6 @@ canvas {
 }
 .info.hidden { display: none; }
 
-/* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .auth-card,
   .auth-form,
