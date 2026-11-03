@@ -25,6 +25,9 @@ body {
 
 .auth-card {
   width: 300px;
+  /* Taller form is signup; keep the card at that height so it never
+     resizes while the login/signup tabs are active. */
+  min-height: 340px;
   background: linear-gradient(145deg, #0a1420, #050a12);
   border: 1px solid #1e3b5a;
   border-radius: 12px;
@@ -33,9 +36,8 @@ body {
   position: relative;
   max-height: 92vh;
   overflow: hidden;
-  /* height is animated by JS; transition makes it smooth */
-  transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: height;
+  transition: min-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: min-height;
 }
 .auth-card::before {
   content: '';
@@ -107,7 +109,7 @@ body {
   position: absolute;
   left: 20px;
   right: 20px;
-  top: 76px;
+  top: 76px; /* below tabs */
   opacity: 0;
   transform: translateY(8px) scale(0.98);
   pointer-events: none;
@@ -120,10 +122,10 @@ body {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
-  position: relative;
-  left: 0;
-  right: 0;
-  top: 0;
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: 76px;
 }
 
 .field { display: flex; flex-direction: column; gap: 3px; }
