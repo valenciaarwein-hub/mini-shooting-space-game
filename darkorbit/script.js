@@ -1,12 +1,63 @@
 // ====================================================================
-// DARK ORBIT · GAME ENGINE
-// All auth lives in auth.js.
-// The auth layer calls window.__initGame() after a successful login
-// and toggles window.__gameRunning when logged in / logged out.
+// DARK ORBIT · GAME ENGINE + WARP TRANSITION
+// Auth lives in auth.js. This file owns the game loop and exposes
+// window.__warpTransition(cb) — a smooth card-level warp used when
+// switching login ↔ signup.
 // ====================================================================
 (function () {
   'use strict';
 
+  // ==================================================================
+  // WARP TRANSITION (login ↔ signup) — smooth, no particles
+  // Uses the .auth-card element directly: adds .warping to it, waits
+  // for the CSS animation midpoint, runs the form swap callback, then
+  // removes the class.
+  // ==================================================================
+  let warpActive = false;
+
+  window.__warpTransition = function (midCallback) {
+    const card = document.querySelector('.auth-card');
+    if (!card) {
+      // No card in the DOM — just run the swap
+      if (typeof midCallback === 'function') midCallback();
+      return;
+    }
+
+    if (warpActive) {
+      // Already warping — run the swap immediately
+      if (typeof midCallback === 'function') midCallback();
+      return;
+    }
+
+    warpActive = true;
+
+    // Restart the animation (remove class, force reflow, re-add)
+    card.classList.remove('warping');
+    void card.offsetWidth;
+    card.classList.add('warping');
+
+    // Swap the form at the animation's visual midpoint (450ms of 900ms)
+    const midTimer = setTimeout(function () {
+      if (typeof midCallback === 'function') midCallback();
+    }, 450);
+
+    // Clean up after the full animation
+    const endTimer = setTimeout(function () {
+      card.classList.remove('warping');
+      warpActive = false;
+    }, 900);
+
+    // Safety: if the card is removed mid-animation, don't leak state
+    if (!card.isConnected) {
+      clearTimeout(midTimer);
+      clearTimeout(endTimer);
+      warpActive = false;
+    }
+  };
+
+  // ==================================================================
+  // GAME ENGINE
+  // ==================================================================
   const canvas = document.getElementById('gameCanvas');
   const ctx    = canvas.getContext('2d');
   let started  = false;
